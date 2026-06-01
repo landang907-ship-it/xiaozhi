@@ -16,6 +16,7 @@ import {
   AlertCircle,
   X,
   Info,
+  Download,
 } from 'lucide-react';
 import { usePositionLabels } from '../context/PositionLabelsContext';
 
@@ -182,6 +183,7 @@ export const ShiftPlanner: React.FC = () => {
   const [activateShift, setActivateShift] = useState<'shift1' | 'shift2' | 'shift3'>('shift1');
   const [activateStatus, setActivateStatus] = useState<'idle' | 'done' | 'error'>('idle');
   const [isLoading, setIsLoading] = useState(true);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   // Load existing plan from server on mount
   const loadPlan = useCallback(async () => {
@@ -298,6 +300,129 @@ export const ShiftPlanner: React.FC = () => {
         { key: 'shift1' as const, label: 'Ca Sáng', desc: '06:00 – 18:00', color: 'bg-amber-100 text-amber-800' },
         { key: 'shift2' as const, label: 'Ca Đêm',  desc: '18:00 – 06:00', color: 'bg-slate-800 text-slate-100' },
       ];
+
+  const exportToExcel = () => {
+    const headers = ['Nhóm vị trí', 'Mã vị trí', 'Tên vị trí'];
+    shiftLabels.forEach(s => {
+      headers.push(`${s.label} (${s.desc})`);
+    });
+
+    const rows = [headers];
+
+    POSITION_GROUPS.forEach(group => {
+      const groupName = getLabel(group.sectionId);
+      group.machines.forEach(machine => {
+        const entry = entries[machine.id] || {};
+        const machineName = getLabel(machine.labelId);
+        const row = [
+          groupName,
+          machine.id,
+          machineName,
+          entry.shift1 || '',
+          entry.shift2 || '',
+        ];
+        if (shiftType === '3_shifts') {
+          row.push(entry.shift3 || '');
+        }
+        rows.push(row);
+      });
+    });
+
+    const csvContent = rows
+      .map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Ke_hoach_sap_ca_${plannedDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setIsExportOpen(false);
+  };
+
+  const exportToPDF = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const title = `KẾ HOẠCH SẮP CA - NGÀY ${plannedDate.split('-').reverse().join('/')}`;
+    const shiftTypeText = shiftType === '3_shifts' ? 'Chế độ 3 ca (8 giờ)' : 'Chế độ 2 ca (12 giờ)';
+
+    let rowsHtml = '';
+    POSITION_GROUPS.forEach(group => {
+      const groupName = getLabel(group.sectionId);
+      group.machines.forEach(machine => {
+        const entry = entries[machine.id] || {};
+        const machineName = getLabel(machine.labelId);
+        rowsHtml += `
+          <tr>
+            <td style="font-weight: bold;">${groupName}</td>
+            <td style="font-family: monospace;">${machine.id}</td>
+            <td>${machineName}</td>
+            <td>${entry.shift1 || '-'}</td>
+            <td>${entry.shift2 || '-'}</td>
+            ${shiftType === '3_shifts' ? `<td>${entry.shift3 || '-'}</td>` : ''}
+          </tr>
+        `;
+      });
+    });
+
+    const headersHtml = `
+      <th>Tổ / Nhóm</th>
+      <th>Mã vị trí</th>
+      <th>Tên vị trí</th>
+      ${shiftLabels.map(s => `<th>${s.label}<br><span style="font-size: 8px; font-weight: normal;">${s.desc}</span></th>`).join('')}
+    `;
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; color: #1e293b; }
+            .header { text-align: center; margin-bottom: 20px; }
+            .header h1 { margin: 0; font-size: 18px; text-transform: uppercase; color: #0f172a; }
+            .header p { margin: 5px 0; font-size: 12px; color: #64748b; }
+            .note-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 11px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+            th { background-color: #f1f5f9; font-weight: bold; }
+            tr:nth-child(even) { background-color: #f8fafc; }
+            @media print {
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${title}</h1>
+            <p><strong>Loại ca:</strong> ${shiftTypeText} | <strong>Ngày tạo:</strong> ${new Date().toLocaleDateString('vi-VN')}</p>
+          </div>
+          ${note ? `<div class="note-box"><strong>Ghi chú:</strong> ${note}</div>` : ''}
+          <table>
+            <thead>
+              <tr>${headersHtml}</tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    setIsExportOpen(false);
+  };
 
   if (isLoading) {
     return (
@@ -549,6 +674,42 @@ export const ShiftPlanner: React.FC = () => {
               )}
               {isActivating ? 'Đang kích hoạt...' : activateStatus === 'done' ? 'Đã kích hoạt!' : activateStatus === 'error' ? 'Lỗi kích hoạt!' : 'Kích Hoạt Ngay'}
             </button>
+
+            {/* Export dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsExportOpen(v => !v)}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-black text-slate-700 transition-all active:scale-95 shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Xuất lịch
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+
+              {isExportOpen && (
+                <>
+                  {/* Overlay to close dropdown on click outside */}
+                  <div className="fixed inset-0 z-40" onClick={() => setIsExportOpen(false)} />
+                  <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                    <button
+                      type="button"
+                      onClick={exportToExcel}
+                      className="w-full text-left px-3.5 py-2 text-[11px] font-black text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition"
+                    >
+                      1. Excel (.csv)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportToPDF}
+                      className="w-full text-left px-3.5 py-2 text-[11px] font-black text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition"
+                    >
+                      2. PDF (In lịch)
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {activateStatus === 'done' && (
               <span className="text-[10px] text-emerald-600 font-bold animate-pulse flex items-center gap-1">

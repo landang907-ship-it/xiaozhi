@@ -2,6 +2,11 @@
   "plannedDate": "2026-06-01",
   "shiftType": "3_shifts",
   "note": "",
-  "entries": [],
-  "updatedAt": "2026-05-31T14:58:38.664+00:00"
+  "entries": [
+    {
+      "shift1": "Vn005544",
+      "machineId": "do_kim_loai_mam_rung"
+    }
+  ],
+  "updatedAt": "2026-06-01T13:36:51.254+00:00"
 }
