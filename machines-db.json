@@ -1,0 +1,186 @@
+[
+  {
+    "id": "do_kim_loai_mam_rung",
+    "code": "",
+    "name": "Máy dò kim loại - Mâm rung",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "bang_tai_dai_1",
+    "code": "",
+    "name": "Băng tải dài 1",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "bang_tai_dai_2",
+    "code": "",
+    "name": "Băng tải dài 2",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "bang_tai_dai_3",
+    "code": "",
+    "name": "Băng tải dài 3",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "bang_tai_dai_4",
+    "code": "",
+    "name": "Băng tải dài 4",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_1",
+    "code": "",
+    "name": "MĐG 1",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_2",
+    "code": "",
+    "name": "MĐG 2",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_3",
+    "code": "",
+    "name": "MĐG 3",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_4",
+    "code": "",
+    "name": "MĐG 4",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_5",
+    "code": "",
+    "name": "MĐG 5",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_6",
+    "code": "",
+    "name": "MĐG 6",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "mdg_7",
+    "code": "",
+    "name": "MĐG 7",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "boc_tui_1",
+    "code": "",
+    "name": "Bóc túi 1",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "boc_tui_2",
+    "code": "",
+    "name": "Bóc túi 2",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "boc_tui_3",
+    "code": "",
+    "name": "Bóc túi 3",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "can",
+    "code": "",
+    "name": "Cân",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_1",
+    "code": "",
+    "name": "Ép miệng 1",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_2",
+    "code": "",
+    "name": "Ép miệng 2",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_3",
+    "code": "",
+    "name": "Ép miệng 3",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_4",
+    "code": "",
+    "name": "Ép miệng 4",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_5",
+    "code": "",
+    "name": "Ép miệng 5",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_6",
+    "code": "",
+    "name": "Ép miệng 6",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  },
+  {
+    "id": "ep_mieng_7",
+    "code": "",
+    "name": "Ép miệng 7",
+    "status": "EMPTY",
+    "operator": "",
+    "updatedAt": "2026-05-31T14:58:26.192Z"
+  }
+]

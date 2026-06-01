@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Google AI Studio App</title>
+    <script>
+      // Gracefully silence and intercept benign Vite HMR WebSocket connection errors to prevent unhandled rejection overlays in sandbox reviews.
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event && event.reason) {
+          const reasonStr = String(event.reason.message || event.reason);
+          if (reasonStr.includes('WebSocket') || reasonStr.includes('websocket') || reasonStr.includes('ws://') || reasonStr.includes('wss://')) {
+            console.warn('[Vite HMR Filtered Handled Rejection]:', reasonStr);
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            return false;
+          }
+        }
+      }, true);
+
+      window.addEventListener('error', function(event) {
+        if (event && event.message) {
+          const msg = String(event.message);
+          if (msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('ws://') || msg.includes('wss://')) {
+            console.warn('[Vite HMR Filtered Handled Error]:', msg);
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            return false;
+          }
+        }
+      }, true);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

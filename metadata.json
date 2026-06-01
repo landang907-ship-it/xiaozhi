@@ -1,0 +1,6 @@
+{
+  "name": "Sơ Đồ Nhà Xưởng",
+  "description": "Hệ thống giám sát sơ đồ vị trí, thông số hoạt động và trạng thái máy móc cơ khí nhà xưởng thời gian thực.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

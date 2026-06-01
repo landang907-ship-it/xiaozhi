@@ -1,0 +1,123 @@
+[
+  {
+    "id": "evt-init-1",
+    "timestamp": "2026-05-28T01:00:23.000Z",
+    "dateString": "2026-05-28",
+    "machineId": "do_kim_loai_mam_rung",
+    "machineName": "Máy dò kim loại - Mâm rung",
+    "status": "PLAN",
+    "operator": "VN006666",
+    "code": "VN006666",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-init-2",
+    "timestamp": "2026-05-28T02:15:10.000Z",
+    "dateString": "2026-05-28",
+    "machineId": "mdg_1",
+    "machineName": "MĐG 1",
+    "status": "PLAN",
+    "operator": "VN002759",
+    "code": "VN002759",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-init-3",
+    "timestamp": "2026-05-28T04:30:45.000Z",
+    "dateString": "2026-05-28",
+    "machineId": "mdg_1",
+    "machineName": "MĐG 1",
+    "status": "ALERT_ABSENT",
+    "operator": "VN002759",
+    "code": "VN002759",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-init-4",
+    "timestamp": "2026-05-28T04:45:00.000Z",
+    "dateString": "2026-05-28",
+    "machineId": "mdg_1",
+    "machineName": "MĐG 1",
+    "status": "REPLACED",
+    "operator": "VN003309",
+    "code": "VN003309",
+    "source": "WEB_MANUAL"
+  },
+  {
+    "id": "evt-init-5",
+    "timestamp": "2026-05-28T07:22:18.000Z",
+    "dateString": "2026-05-28",
+    "machineId": "ep_mieng_3",
+    "machineName": "Ép miệng 3",
+    "status": "PLAN",
+    "operator": "VN008888",
+    "code": "VN008888",
+    "source": "WEB_MANUAL"
+  },
+  {
+    "id": "evt-init-6",
+    "timestamp": "2026-05-29T00:30:15.000Z",
+    "dateString": "2026-05-29",
+    "machineId": "bang_tai_dai_3",
+    "machineName": "Băng tải dài 3",
+    "status": "PLAN",
+    "operator": "VN009999",
+    "code": "VN009999",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-init-7",
+    "timestamp": "2026-05-29T01:12:00.000Z",
+    "dateString": "2026-05-29",
+    "machineId": "ep_mieng_1",
+    "machineName": "Ép miệng 1",
+    "status": "PLAN",
+    "operator": "VN002759",
+    "code": "VN002759",
+    "source": "WEB_MANUAL"
+  },
+  {
+    "id": "evt-init-8",
+    "timestamp": "2026-05-29T02:05:40.000Z",
+    "dateString": "2026-05-29",
+    "machineId": "can",
+    "machineName": "Cân",
+    "status": "PLAN",
+    "operator": "VN007777",
+    "code": "VN007777",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-1780068033068-x0tz",
+    "timestamp": "2026-05-29T15:20:33.068Z",
+    "dateString": "2026-05-29",
+    "machineId": "can",
+    "machineName": "Cân",
+    "status": "PLAN",
+    "operator": "VN004650",
+    "code": "VN004650",
+    "source": "TELEGRAM"
+  },
+  {
+    "id": "evt-1780068896641-vzby",
+    "timestamp": "2026-05-29T15:34:56.641Z",
+    "dateString": "2026-05-29",
+    "machineId": "do_kim_loai_mam_rung",
+    "machineName": "Máy dò kim loại - Mâm rung",
+    "status": "EMPTY",
+    "operator": "VN4650",
+    "code": "VN4650",
+    "source": "WEB_MANUAL"
+  },
+  {
+    "id": "evt-1780068912918-hri4",
+    "timestamp": "2026-05-29T15:35:12.918Z",
+    "dateString": "2026-05-29",
+    "machineId": "do_kim_loai_mam_rung",
+    "machineName": "Máy dò kim loại - Mâm rung",
+    "status": "PLAN",
+    "operator": "VN004650",
+    "code": "VN004650",
+    "source": "WEB_MANUAL"
+  }
+]
