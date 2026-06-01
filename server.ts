@@ -708,7 +708,7 @@ try {
 async function startServer() {
   await initializeDatabase();
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -914,21 +914,6 @@ async function startServer() {
       writeDB(current);
       logEvent(current[index], 'WEB_MANUAL');
 
-      // Outbound Notification Push
-      let emoji = "ℹ️";
-      let statusName = valStatus;
-      if (valStatus === "PLAN") { emoji = "🔵"; statusName = "ĐANG ĐỨNG MÁY (PLAN)"; }
-      else if (valStatus === "ALERT_ABSENT") { emoji = "🔴"; statusName = "CẢNH BÁO VẮNG MẶT"; }
-      else if (valStatus === "REPLACED") { emoji = "🟡"; statusName = "ĐÃ THAY THẾ NHÂN VIÊN"; }
-      else if (valStatus === "EMPTY") { emoji = "⚪"; statusName = "TRỐNG / CHỜ GÁN"; }
-
-      const notifyText = `⚡ <b>CẬP NHẬT TỪ SƠ ĐỒ WEB</b>\n` +
-                         `📍 <b>Vị trí:</b> ${current[index].name}\n` +
-                         `👤 <b>Nhân viên:</b> ${valOperator || "Chưa gán"}\n` +
-                         `📌 <b>Trạng thái:</b> ${emoji} <b>${statusName}</b>\n` +
-                         `⏰ <b>Thời gian:</b> ${new Date().toLocaleTimeString('vi-VN')}`;
-      pushTelegramNotification(notifyText);
-
       return res.json({ success: true, updated: current[index] });
     }
     res.status(404).json({ error: "Machine not found" });
@@ -1001,20 +986,6 @@ async function startServer() {
 
       writeDB(updated);
 
-      // Outbound Notification Push for Shift Activation
-      const shiftLabels = plan.shiftType === '3_shifts'
-        ? { shift1: 'Ca 1 (06:00 – 14:00)', shift2: 'Ca 2 (14:00 – 22:00)', shift3: 'Ca 3 (22:00 – 06:00)' }
-        : { shift1: 'Ca Sáng (06:00 – 18:00)', shift2: 'Ca Đêm (18:00 – 06:00)', shift3: 'Ca 3' };
-      
-      const shiftName = shiftLabels[targetShift] || targetShift;
-      const notifyText = `📅 <b>KÍCH HOẠT CA LÀM VIỆC MỚI</b>\n` +
-                         `⚙️ <b>Kế hoạch ngày:</b> ${plan.plannedDate}\n` +
-                         `⏰ <b>Ca trực kích hoạt:</b> <b>${shiftName}</b>\n` +
-                         `👥 <b>Số vị trí đã gán:</b> <b>${activatedCount}/23</b> vị trí\n` +
-                         `📝 <b>Ghi chú:</b> ${plan.note || "Không có"}\n\n` +
-                         `🚀 <i>Sơ đồ giám sát xưởng Senbei đã tự động cập nhật!</i>`;
-      pushTelegramNotification(notifyText);
-
       return res.json({ success: true, activatedCount, shift: targetShift });
     } catch (err) {
       console.error("Error activating plan:", err);
@@ -1022,46 +993,7 @@ async function startServer() {
     }
   });
 
-  // =======================================================================
-  // 4. Telegram Outbound Notification Engine (Web -> Telegram Push Only)
-  // =======================================================================
-  const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "8512769321:AAHHWgeubYibCHMfplKZi2T58WlI65Ck5vE";
 
-  async function pushTelegramNotification(text: string) {
-    const chatId = process.env.TELEGRAM_CHAT_ID || "";
-    if (!chatId) {
-      console.log("[Telegram Outbound] Pushing message skipped: TELEGRAM_CHAT_ID is not configured in .env / .env.local.");
-      return;
-    }
-    try {
-      const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text,
-          parse_mode: "HTML"
-        })
-      });
-      const data = await response.json();
-      if (!data.ok) {
-        console.error("[Telegram Outbound Error] Failed to send message to Telegram group:", data.description);
-      } else {
-        console.log("[Telegram Outbound] Notification successfully pushed to Telegram channel.");
-      }
-    } catch (err) {
-      console.error("[Telegram Outbound Error] Network request failed:", err);
-    }
-  }
-
-  // Webhook listener: Return disabled response for security since inbound control is removed
-  app.post("/api/telegram", (req, res) => {
-    return res.json({ 
-      ok: false, 
-      comment: "Inbound database writing from Telegram is disabled. Only outbound notifications from Web to Telegram are enabled." 
-    });
-  });
 
   // Serve Single Page Application (SPA) inside AI Studio
   if (process.env.NODE_ENV !== "production") {

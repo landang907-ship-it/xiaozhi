@@ -14,11 +14,4 @@ export interface Machine {
 
 export type LayoutViewMode = 'grid' | 'floorplan';
 
-export interface TelegramConfig {
-  botToken: string;
-  chatId: string;
-  enabled: boolean;
-  alertOnOffline: boolean;
-  alertOnOverheat: boolean;
-  maxTempThreshold: number;
-}
+
