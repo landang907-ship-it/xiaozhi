@@ -237,6 +237,7 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({ machines, onRefres
   const [historySearch, setHistorySearch] = useState<string>('');
   const [historySourceFilter, setHistorySourceFilter] = useState<string>('ALL');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('ALL');
+  const [confirmClear, setConfirmClear] = useState<boolean>(false);
 
   // Fetch History Logs
   const fetchHistory = useCallback(async (dateParam: string) => {
@@ -261,6 +262,43 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({ machines, onRefres
       setHistoryLoading(false);
     }
   }, []);
+
+  const handleClearData = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      return;
+    }
+
+    try {
+      setHistoryLoading(true);
+      const response = await fetch('/api/admin/clear-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requester: isAdminLoggedIn,
+          date: selectedDate
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Xoá dữ liệu thất bại');
+      }
+
+      alert(data.message || 'Xoá dữ liệu thành công');
+      setConfirmClear(false);
+      
+      // Refresh data
+      fetchHistory(selectedDate);
+      onRefreshMachines();
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi kết nối đến máy chủ để xoá dữ liệu');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   // Fetch log on select changes
   useEffect(() => {
@@ -923,7 +961,7 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({ machines, onRefres
             </div>
 
             {/* Quick date picker */}
-            <div className="flex items-center gap-2 bg-slate-50 p-2 border border-slate-200 rounded-xl shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 border border-slate-200 rounded-xl shadow-sm">
               <span className="text-[10px] uppercase font-black text-slate-450 pl-1">Ngày truy xuất:</span>
               <input
                 type="date"
@@ -940,6 +978,20 @@ export const DataExtractor: React.FC<DataExtractorProps> = ({ machines, onRefres
               >
                 <RefreshCw className={`w-3 h-3 text-indigo-600 ${historyLoading ? 'animate-spin' : ''}`} />
                 Kiểm tra
+              </button>
+
+              <button
+                onClick={handleClearData}
+                onBlur={() => setConfirmClear(false)}
+                className={`p-1 px-2.5 border rounded-lg text-xs font-black transition flex items-center gap-1 cursor-pointer shadow-sm ${
+                  confirmClear
+                    ? 'bg-red-600 border-red-500 text-white hover:bg-red-700'
+                    : 'bg-red-50 hover:bg-red-100 border-red-200 text-red-650 hover:text-red-700'
+                }`}
+                title="Xoá toàn bộ lịch sử điểm danh và kế hoạch ca của ngày này"
+              >
+                <Ban className="w-3 h-3" />
+                {confirmClear ? 'Xác nhận xoá?' : 'Xoá dữ liệu'}
               </button>
             </div>
           </div>

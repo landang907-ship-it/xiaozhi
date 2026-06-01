@@ -869,6 +869,75 @@ async function startServer() {
     }
   });
 
+  // Clear all data (history, plans, live machine states) for a specific date
+  app.post("/api/admin/clear-data", async (req, res) => {
+    try {
+      const { requester, date } = req.body;
+      if (!requester || !date) {
+        return res.status(400).json({ error: "Thiếu thông tin người yêu cầu hoặc ngày cần xoá!" });
+      }
+
+      const adminsList = readAdmins();
+      const isApprovedRequester = adminsList.some(admin => admin.username.toLowerCase() === String(requester).toLowerCase() && admin.approved === true);
+      if (!isApprovedRequester) {
+        return res.status(403).json({ error: "Chỉ tài khoản admin đã kích hoạt mới có quyền xoá dữ liệu!" });
+      }
+
+      // 1. Clear history matching dateString
+      cacheHistory = cacheHistory.filter(evt => evt.dateString !== date);
+      writeLocalHistory(cacheHistory);
+      if (supabase) {
+        const { error: err1 } = await supabase.from("history").delete().eq("dateString", date);
+        if (err1) console.error("[Supabase Clear Error (history)]:", err1);
+      }
+
+      // 2. Clear plans matching plannedDate
+      let planCleared = false;
+      if (cachePlan && cachePlan.plannedDate === date) {
+        cachePlan = {
+          plannedDate: date,
+          shiftType: '3_shifts',
+          note: '',
+          entries: [],
+          updatedAt: new Date().toISOString()
+        };
+        writeLocalPlan(cachePlan);
+        planCleared = true;
+      }
+      if (supabase) {
+        const { error: err2 } = await supabase.from("plans").delete().eq("plannedDate", date);
+        if (err2) console.error("[Supabase Clear Error (plans)]:", err2);
+      }
+
+      // 3. Reset live machine grid status to EMPTY if it matches date to clear
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+
+      if (date === todayStr || planCleared) {
+        const current = readDB();
+        const resetMachines = current.map(m => ({
+          ...m,
+          status: 'EMPTY' as const,
+          operator: '',
+          code: '',
+          updatedAt: new Date().toISOString()
+        }));
+        writeDB(resetMachines);
+      }
+
+      return res.json({ 
+        success: true, 
+        message: `Đã xoá toàn bộ dữ liệu (lịch sử điểm danh, kế hoạch sắp ca, reset trạng thái sơ đồ) của ngày ${date} thành công!` 
+      });
+    } catch (err) {
+      console.error("Clear data error:", err);
+      return res.status(500).json({ error: "Lỗi máy chủ khi xoá dữ liệu!" });
+    }
+  });
+
   // API Endpoints
   
   // 1. Fetch current status of 4 machines
