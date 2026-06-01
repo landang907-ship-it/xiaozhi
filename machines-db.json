@@ -5,7 +5,7 @@
     "name": "Máy dò kim loại - Mâm rung",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "bang_tai_dai_1",
@@ -13,7 +13,7 @@
     "name": "Băng tải dài 1",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "bang_tai_dai_2",
@@ -21,7 +21,7 @@
     "name": "Băng tải dài 2",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "bang_tai_dai_3",
@@ -29,7 +29,7 @@
     "name": "Băng tải dài 3",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "bang_tai_dai_4",
@@ -37,7 +37,7 @@
     "name": "Băng tải dài 4",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_1",
@@ -45,7 +45,7 @@
     "name": "MĐG 1",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_2",
@@ -53,7 +53,7 @@
     "name": "MĐG 2",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_3",
@@ -61,7 +61,7 @@
     "name": "MĐG 3",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_4",
@@ -69,7 +69,7 @@
     "name": "MĐG 4",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_5",
@@ -77,7 +77,7 @@
     "name": "MĐG 5",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_6",
@@ -85,7 +85,7 @@
     "name": "MĐG 6",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "mdg_7",
@@ -93,7 +93,7 @@
     "name": "MĐG 7",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "boc_tui_1",
@@ -101,7 +101,7 @@
     "name": "Bóc túi 1",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "boc_tui_2",
@@ -109,7 +109,7 @@
     "name": "Bóc túi 2",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "boc_tui_3",
@@ -117,7 +117,7 @@
     "name": "Bóc túi 3",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "can",
@@ -125,7 +125,7 @@
     "name": "Cân",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_1",
@@ -133,7 +133,7 @@
     "name": "Ép miệng 1",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_2",
@@ -141,7 +141,7 @@
     "name": "Ép miệng 2",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_3",
@@ -149,7 +149,7 @@
     "name": "Ép miệng 3",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_4",
@@ -157,7 +157,7 @@
     "name": "Ép miệng 4",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_5",
@@ -165,7 +165,7 @@
     "name": "Ép miệng 5",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_6",
@@ -173,7 +173,7 @@
     "name": "Ép miệng 6",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   },
   {
     "id": "ep_mieng_7",
@@ -181,6 +181,6 @@
     "name": "Ép miệng 7",
     "status": "EMPTY",
     "operator": "",
-    "updatedAt": "2026-05-31T14:58:26.192Z"
+    "updatedAt": "2026-05-31T14:58:26.192+00:00"
   }
 ]
