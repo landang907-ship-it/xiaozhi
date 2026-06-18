@@ -61,11 +61,18 @@
 static i2c_master_bus_handle_t g_i2c_bus = nullptr;
 static i2c_master_dev_handle_t g_oled_dev = nullptr;
 
-// Ghi 1 byte command
+// Retry oled_cmd — IDF v5 i2c_master đôi khi trả ESP_ERR_INVALID_STATE ngay
+// sau add_device(). Retry 3 lần với delay ngắn để warm-up queue.
 static esp_err_t oled_cmd(uint8_t cmd)
 {
     uint8_t buf[2] = { 0x00, cmd };   // 0x00 = control byte "command stream"
-    return i2c_master_transmit(g_oled_dev, buf, sizeof(buf), -1);
+    for (int attempt = 0; attempt < 5; attempt++) {
+        esp_err_t err = i2c_master_transmit(g_oled_dev, buf, sizeof(buf), -1);
+        if (err == ESP_OK) return ESP_OK;
+        ESP_LOGW(TAG, "oled_cmd(0x%02X) -> %s (try %d/5)", cmd, esp_err_to_name(err), attempt + 1);
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return ESP_FAIL;
 }
 
 // Ghi 1 byte data
@@ -262,19 +269,29 @@ static esp_err_t ssd1306_init(void)
 
 static esp_err_t ssd1306_flush(void)
 {
-    // Set column range 0..127, page range 0..7
-    ESP_ERROR_CHECK(oled_cmd(0x21));
-    ESP_ERROR_CHECK(oled_cmd(0x00));
-    ESP_ERROR_CHECK(oled_cmd(DISPLAY_WIDTH - 1));
-    ESP_ERROR_CHECK(oled_cmd(0x22));
-    ESP_ERROR_CHECK(oled_cmd(0x00));
-    ESP_ERROR_CHECK(oled_cmd(OLED_PAGES - 1));
+    // Ghi theo từng PAGE (128 byte) — quan trọng!
+    // Lý do: i2c_master_transmit() của IDF v5 có buffer nội bộ
+    // (~256 byte). Gửi 1 lần 1025 byte sẽ fail. Chia nhỏ theo page
+    // là cách an toàn nhất & tương thích mọi driver.
+    static const uint8_t ctrl = 0x40;   // control byte: data stream
+    for (int page = 0; page < OLED_PAGES; page++) {
+        // Set column high/low = 0 (cột 0..127)
+        ESP_ERROR_CHECK(oled_cmd(0x10));           // column high nibble
+        ESP_ERROR_CHECK(oled_cmd(0x00));           // column low nibble
+        // Set page address (0xB0..0xB7)
+        ESP_ERROR_CHECK(oled_cmd(0xB0 | page));
 
-    // Burst write: control byte 0x40 rá»“i 1024 byte data
-    uint8_t tx[1 + OLED_BUF_SIZE];
-    tx[0] = 0x40;
-    memcpy(&tx[1], g_framebuf, OLED_BUF_SIZE);
-    return i2c_master_transmit(g_oled_dev, tx, sizeof(tx), -1);
+        // Gửi control byte (0x40) + 128 byte data của page
+        uint8_t tx[1 + DISPLAY_WIDTH];
+        tx[0] = ctrl;
+        memcpy(&tx[1], &g_framebuf[page * DISPLAY_WIDTH], DISPLAY_WIDTH);
+        esp_err_t err = i2c_master_transmit(g_oled_dev, tx, sizeof(tx), -1);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "flush page %d failed: %s", page, esp_err_to_name(err));
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 static esp_err_t ssd1306_contrast(uint8_t v)
@@ -319,7 +336,21 @@ static esp_err_t i2c_bus_init(void)
     dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
     dev_cfg.device_address  = DISPLAY_I2C_ADDR;
     dev_cfg.scl_speed_hz    = DISPLAY_I2C_SPEED_HZ;
-    return i2c_master_bus_add_device(g_i2c_bus, &dev_cfg, &g_oled_dev);
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(g_i2c_bus, &dev_cfg, &g_oled_dev));
+
+    // Warm-up: probe + chờ một chút để I2C driver queue settle.
+    // ESP-IDF v5 i2c_master đôi khi trả ESP_ERR_INVALID_STATE cho
+    // transaction ngay sau add_device nếu chưa có transaction nào.
+    vTaskDelay(pdMS_TO_TICKS(20));
+    esp_err_t probe = i2c_master_probe(g_i2c_bus, DISPLAY_I2C_ADDR, 100);
+    if (probe == ESP_OK) {
+        ESP_LOGI(TAG, "Probe 0x%02X OK - bus ready.", DISPLAY_I2C_ADDR);
+    } else {
+        ESP_LOGW(TAG, "Probe 0x%02X failed: %s (continuing, retry logic will handle)",
+                 DISPLAY_I2C_ADDR, esp_err_to_name(probe));
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    return ESP_OK;
 }
 
 static void i2c_scan(void)
