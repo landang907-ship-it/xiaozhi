@@ -1,24 +1,25 @@
 ﻿/* ============================================================================
- * test_oled.cc â€” Standalone test firmware cho OLED SSD1306 128x64 I2C
+ * test_oled.cc — Standalone test firmware cho OLED SSD1306 128x64 I2C
  * ----------------------------------------------------------------------------
  * Board:    ESP32-S3-WROOM-1 (N16R8)
- * OLED:     SSD1306 128x64 I2C, addr 0x3C
- * Wiring:   SDA = GPIO8, SCL = GPIO9 (I2C_NUM_0, 100 kHz)
- * Display:  Mirror X = true, Mirror Y = true (xoay 180Â°)
- * Framework: ESP-IDF v5.x (new I2C master API)
+ * OLED:     SSD1306 128x64 I2C, addr 0x3C (auto-detect 0x3C/0x3D)
+ * Wiring:   SDA = GPIO8, SCL = GPIO9 (I2C_NUM_0, auto 100k/400k)
+ * Display:  Mirror X = true, Mirror Y = true (xoay 180°)
+ * Framework: ESP-IDF v5.x — dùng esp_lcd API (panel_io_i2c + panel_ssd1306)
  * ----------------------------------------------------------------------------
- * CÃ¡ch dÃ¹ng:
- *   1. Copy file nÃ y vÃ o project ESP-IDF (vd main/test_oled.cc)
- *      hoáº·c táº¡o project má»›i vÃ  thay main/app_main.cc báº±ng file nÃ y.
- *   2. idf.py set-target esp32s3
- *   3. idf.py -j8 build
- *   4. idf.py -p COMx -b 921600 flash monitor
- *   5. Má»Ÿ Serial Monitor (115200 baud), gÃµ sá»‘ 0..11 + Enter Ä‘á»ƒ cháº¡y test.
+ * Cách dùng:
+ *   1. idf.py set-target esp32s3
+ *   2. idf.py -j8 build
+ *   3. idf.py -p COMx -b 921600 flash monitor
+ *   4. Mở Serial Monitor (115200 baud), gõ số 0..11 + Enter để chạy test.
  *
- * LÆ°u Ã½:
- *   - File nÃ y KHÃ”NG phá»¥ thuá»™c component OLED cá»§a xiaozhi-esp32.
- *     NÃ³ lÃ  driver SSD1306 inline + test logic, build Ä‘á»™c láº­p Ä‘Æ°á»£c.
- *   - Äá»ƒ dÃ¹ng trong project tháº­t, nÃªn #include board config Ä‘á»ƒ láº¥y SDA/SCL.
+ * Lưu ý:
+ *   - File này KHÔNG phụ thuộc component OLED của xiaozhi-esp32.
+ *   - Tầng transport dùng esp_lcd_panel_io_i2c (vendor-tested) thay vì
+ *     raw i2c_master_transmit(). Tránh được mọi vấn đề về control byte,
+ *     page addressing, command/data distinction mà driver raw hay gặp.
+ *   - Thử tuần tự (0x3C, 0x3D) × (100kHz, 400kHz) cho tới khi tìm được
+ *     combo hoạt động (giống cách board xiaozhi làm).
  * ========================================================================== */
 
 #include <cstdio>
@@ -33,7 +34,10 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "driver/i2c_master.h"
-#include "driver/gpio.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_io_i2c.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_ssd1306.h"
 #include "esp_console.h"
 #include "linenoise/linenoise.h"
 
@@ -41,50 +45,30 @@
 
 #define TAG                      "TestOled"
 
-// Match `config.h` cá»§a board xiaozhi-esp32
+// Match `config.h` của board xiaozhi-esp32
 #define DISPLAY_SDA_PIN          GPIO_NUM_8
 #define DISPLAY_SCL_PIN          GPIO_NUM_9
 #define DISPLAY_I2C_NUM          I2C_NUM_0
 #define DISPLAY_I2C_ADDR         0x3C
-#define DISPLAY_I2C_SPEED_HZ     100000   // 100 kHz
+#define DISPLAY_I2C_SPEED_HZ     100000   // 100 kHz (sẽ thử 400k nếu 100k fail)
 #define DISPLAY_WIDTH            128
 #define DISPLAY_HEIGHT           64
 #define DISPLAY_MIRROR_X         true
 #define DISPLAY_MIRROR_Y         true
 
-// Page buffer: 1 byte = 8 vertical pixels. 128x64 â†’ 8 pages Ã— 128 bytes.
+// Page buffer: 1 byte = 8 vertical pixels. 128x64 → 8 pages × 128 bytes.
 #define OLED_PAGES               (DISPLAY_HEIGHT / 8)
 #define OLED_BUF_SIZE            (DISPLAY_WIDTH * OLED_PAGES)
 
-/* ============================================================ I2C LAYER === */
+/* ============================================================ ESP_LCD LAYER == */
 
-static i2c_master_bus_handle_t g_i2c_bus = nullptr;
-static i2c_master_dev_handle_t g_oled_dev = nullptr;
-
-// Retry oled_cmd — IDF v5 i2c_master đôi khi trả ESP_ERR_INVALID_STATE ngay
-// sau add_device(). Retry 3 lần với delay ngắn để warm-up queue.
-static esp_err_t oled_cmd(uint8_t cmd)
-{
-    uint8_t buf[2] = { 0x00, cmd };   // 0x00 = control byte "command stream"
-    for (int attempt = 0; attempt < 5; attempt++) {
-        esp_err_t err = i2c_master_transmit(g_oled_dev, buf, sizeof(buf), -1);
-        if (err == ESP_OK) return ESP_OK;
-        ESP_LOGW(TAG, "oled_cmd(0x%02X) -> %s (try %d/5)", cmd, esp_err_to_name(err), attempt + 1);
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-    return ESP_FAIL;
-}
-
-// Ghi 1 byte data
-static esp_err_t oled_data(uint8_t data)
-{
-    uint8_t buf[2] = { 0x40, data };  // 0x40 = control byte "data stream"
-    return i2c_master_transmit(g_oled_dev, buf, sizeof(buf), -1);
-}
+static i2c_master_bus_handle_t    g_i2c_bus  = nullptr;
+static esp_lcd_panel_io_handle_t  g_panel_io = nullptr;
+static esp_lcd_panel_handle_t     g_panel    = nullptr;
 
 /* ============================================================ SSD1306 ===== */
 
-// Font 5x7 ASCII (kÃ½ tá»± in Ä‘Æ°á»£c 0x20..0x7F). Má»—i glyph = 5 bytes cá»™t.
+// Font 5x7 ASCII (ký tự in được 0x20..0x7F). Mỗi glyph = 5 bytes cột.
 static const uint8_t font5x7[][5] = {
     {0x00,0x00,0x00,0x00,0x00}, // 0x20 ' '
     {0x00,0x00,0x5F,0x00,0x00}, // 0x21 '!'
@@ -214,7 +198,7 @@ static void fb_circle(int cx, int cy, int r, bool on)
 
 static void fb_char(int x, int y, char c)
 {
-    if (c < 0x20 || c > 0x5A) return;   // font nÃ y chá»‰ cover 0x20..0x5A
+    if (c < 0x20 || c > 0x5A) return;   // font này chỉ cover 0x20..0x5A
     const uint8_t *g = font5x7[c - 0x20];
     for (int col = 0; col < 5; col++)
         for (int row = 0; row < 7; row++)
@@ -233,169 +217,226 @@ static void fb_text(int x, int y, const char *s)
 
 /* ============================================================ INIT ======== */
 
+static esp_err_t i2c_bus_init(void)
+{
+    if (g_i2c_bus != nullptr) return ESP_OK;
+
+    i2c_master_bus_config_t bus_cfg = {};
+    bus_cfg.i2c_port = DISPLAY_I2C_NUM;
+    bus_cfg.sda_io_num = DISPLAY_SDA_PIN;
+    bus_cfg.scl_io_num = DISPLAY_SCL_PIN;
+    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    bus_cfg.glitch_ignore_cnt = 7;
+    bus_cfg.intr_priority = 0;
+    bus_cfg.trans_queue_depth = 0;
+    bus_cfg.flags.enable_internal_pullup = true;
+
+    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &g_i2c_bus));
+
+    // Scan I2C bus một lần để log các thiết bị thực sự phản hồi.
+    // Giúp debug nhanh khi OLED không lên.
+    ESP_LOGI(TAG, "Scanning I2C bus (SDA=%d, SCL=%d) for any responding device...",
+             (int)DISPLAY_SDA_PIN, (int)DISPLAY_SCL_PIN);
+    int found = 0;
+    for (uint8_t addr = 0x03; addr < 0x78; ++addr) {
+        esp_err_t probe = i2c_master_probe(g_i2c_bus, addr, 50);
+        if (probe == ESP_OK) {
+            ESP_LOGI(TAG, "  I2C device ACK at 0x%02X", addr);
+            found++;
+        }
+    }
+    if (found == 0) {
+        ESP_LOGE(TAG,
+                 "  No I2C devices responded on this bus. Check: SDA/SCL wiring, "
+                 "3.3V power, and external pull-ups (4.7k) on SDA/SCL.");
+    } else {
+        ESP_LOGI(TAG, "  Found %d I2C device(s) on the bus.", found);
+    }
+    return ESP_OK;
+}
+
 static esp_err_t ssd1306_init(void)
 {
-    // Init sequence theo datasheet SSD1306
-    ESP_ERROR_CHECK(oled_cmd(0xAE));            // Display OFF
-    ESP_ERROR_CHECK(oled_cmd(0xD5));            // Set display clock
-    ESP_ERROR_CHECK(oled_cmd(0x80));            // default ratio
-    ESP_ERROR_CHECK(oled_cmd(0xA8));            // Set multiplex
-    ESP_ERROR_CHECK(oled_cmd(DISPLAY_HEIGHT - 1));
-    ESP_ERROR_CHECK(oled_cmd(0xD3));            // Set display offset
-    ESP_ERROR_CHECK(oled_cmd(0x00));            // offset 0
-    ESP_ERROR_CHECK(oled_cmd(0x40));            // Set start line = 0
-    ESP_ERROR_CHECK(oled_cmd(0x8D));            // Enable charge pump
-    ESP_ERROR_CHECK(oled_cmd(0x14));
-    ESP_ERROR_CHECK(oled_cmd(0x20));            // Memory addressing mode
-    ESP_ERROR_CHECK(oled_cmd(0x00));            // Horizontal mode
-    ESP_ERROR_CHECK(oled_cmd(0xA1 | (DISPLAY_MIRROR_X ? 0x00 : 0x01)));
-    ESP_ERROR_CHECK(oled_cmd(0xC8 | (DISPLAY_MIRROR_Y ? 0x00 : 0x08)));
-    ESP_ERROR_CHECK(oled_cmd(0xDA));            // COM pins
-    ESP_ERROR_CHECK(oled_cmd(0x12));            // alt COM config (cho 128x64)
-    ESP_ERROR_CHECK(oled_cmd(0x81));            // Contrast
-    ESP_ERROR_CHECK(oled_cmd(0xCF));
-    ESP_ERROR_CHECK(oled_cmd(0xD9));            // Pre-charge
-    ESP_ERROR_CHECK(oled_cmd(0xF1));
-    ESP_ERROR_CHECK(oled_cmd(0xDB));            // VCOMH deselect level
-    ESP_ERROR_CHECK(oled_cmd(0x40));
-    ESP_ERROR_CHECK(oled_cmd(0xA4));            // Resume to RAM content
-    ESP_ERROR_CHECK(oled_cmd(0xA6));            // Normal (not inverted)
-    ESP_ERROR_CHECK(oled_cmd(0x2E));            // Deactivate scroll
-    ESP_ERROR_CHECK(oled_cmd(0xAF));            // Display ON
+    if (g_panel != nullptr) return ESP_OK;  // đã init rồi
 
-    fb_clear();
-    return ESP_OK;
+    ESP_ERROR_CHECK(i2c_bus_init());
+
+    // Thử tuần tự (0x3C, 0x3D) × (100kHz, 400kHz) cho tới khi tìm được
+    // combo hoạt động — giống cách board xiaozhi-esp32 làm.
+    const uint8_t  kAddrs[]  = { 0x3C, 0x3D };
+    const uint32_t kSpeeds[] = { 100 * 1000, 400 * 1000 };
+
+    for (uint8_t addr : kAddrs) {
+        for (uint32_t speed : kSpeeds) {
+            esp_lcd_panel_io_handle_t io  = nullptr;
+            esp_lcd_panel_handle_t    pnl = nullptr;
+
+            esp_lcd_panel_io_i2c_config_t io_cfg = {};
+            io_cfg.dev_addr = addr;
+            io_cfg.scl_speed_hz = speed;
+            io_cfg.control_phase_bytes = 1;
+            io_cfg.lcd_cmd_bits = 8;
+            io_cfg.lcd_param_bits = 8;
+            io_cfg.dc_bit_offset = 6;              // SSD1306 trick: bit 6 = D/C
+            io_cfg.flags.disable_control_phase = 1;
+
+            esp_err_t err = esp_lcd_new_panel_io_i2c(g_i2c_bus, &io_cfg, &io);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "esp_lcd_new_panel_io_i2c(0x%02X @ %luHz) failed: %s",
+                         addr, (unsigned long)speed, esp_err_to_name(err));
+                continue;
+            }
+
+            esp_lcd_panel_ssd1306_config_t ssd_cfg = {};
+            ssd_cfg.height = DISPLAY_HEIGHT;
+
+            esp_lcd_panel_dev_config_t dev_cfg = {};
+            dev_cfg.reset_gpio_num   = -1;
+            dev_cfg.flags.reset_active_high = false;
+            dev_cfg.bits_per_pixel   = 1;
+            dev_cfg.vendor_config    = &ssd_cfg;
+
+            err = esp_lcd_new_panel_ssd1306(io, &dev_cfg, &pnl);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "esp_lcd_new_panel_ssd1306(0x%02X) failed: %s",
+                         addr, esp_err_to_name(err));
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+
+            err = esp_lcd_panel_reset(pnl);
+            if (err == ESP_OK) err = esp_lcd_panel_init(pnl);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "ssd1306 init failed for 0x%02X @ %luHz: %s",
+                         addr, (unsigned long)speed, esp_err_to_name(err));
+                esp_lcd_panel_del(pnl);
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+            err = esp_lcd_panel_disp_on_off(pnl, true);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "ssd1306 disp_on_off failed for 0x%02X: %s",
+                         addr, esp_err_to_name(err));
+                esp_lcd_panel_del(pnl);
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+
+            // Xoay màn hình 180° (mirror X && mirror Y) bằng lệnh thô SSD1306.
+            // Chỉ xoay ở mức driver, KHÔNG dùng esp_lcd_panel_mirror() ở
+            // đây (sẽ xoay buffer lần nữa, triệt tiêu).
+            if (DISPLAY_MIRROR_X) {
+                esp_lcd_panel_io_tx_param(io, 0xA1, nullptr, 0);  // SET_SEG_REMAP
+            } else {
+                esp_lcd_panel_io_tx_param(io, 0xA0, nullptr, 0);  // SET_SEG_REMAP_NORMAL
+            }
+            if (DISPLAY_MIRROR_Y) {
+                esp_lcd_panel_io_tx_param(io, 0xC8, nullptr, 0);  // SET_COM_SCAN_REMAPPED
+            } else {
+                esp_lcd_panel_io_tx_param(io, 0xC0, nullptr, 0);  // SET_COM_SCAN_NORMAL
+            }
+            ESP_LOGI(TAG, "Display rotated 180° via SSD1306 (mirror_x=%d, mirror_y=%d)",
+                     (int)DISPLAY_MIRROR_X, (int)DISPLAY_MIRROR_Y);
+
+            g_panel_io = io;
+            g_panel    = pnl;
+            ESP_LOGI(TAG, "SSD1306 ready at 0x%02X @ %lu Hz", addr,
+                     (unsigned long)speed);
+            return ESP_OK;
+        }
+    }
+
+    ESP_LOGE(TAG,
+             "SSD1306 OLED not detected on I2C bus (SDA=%d, SCL=%d). "
+             "Continuing without a working display; check wiring and the "
+             "I2C address (0x3C/0x3D).",
+             (int)DISPLAY_SDA_PIN, (int)DISPLAY_SCL_PIN);
+    return ESP_FAIL;
 }
 
 static esp_err_t ssd1306_flush(void)
 {
-    // Ghi theo từng PAGE (128 byte) — quan trọng!
-    // Lý do: i2c_master_transmit() của IDF v5 có buffer nội bộ
-    // (~256 byte). Gửi 1 lần 1025 byte sẽ fail. Chia nhỏ theo page
-    // là cách an toàn nhất & tương thích mọi driver.
-    static const uint8_t ctrl = 0x40;   // control byte: data stream
-    for (int page = 0; page < OLED_PAGES; page++) {
-        // Set column high/low = 0 (cột 0..127)
-        ESP_ERROR_CHECK(oled_cmd(0x10));           // column high nibble
-        ESP_ERROR_CHECK(oled_cmd(0x00));           // column low nibble
-        // Set page address (0xB0..0xB7)
-        ESP_ERROR_CHECK(oled_cmd(0xB0 | page));
-
-        // Gửi control byte (0x40) + 128 byte data của page
-        uint8_t tx[1 + DISPLAY_WIDTH];
-        tx[0] = ctrl;
-        memcpy(&tx[1], &g_framebuf[page * DISPLAY_WIDTH], DISPLAY_WIDTH);
-        esp_err_t err = i2c_master_transmit(g_oled_dev, tx, sizeof(tx), -1);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "flush page %d failed: %s", page, esp_err_to_name(err));
-            return err;
-        }
-    }
-    return ESP_OK;
+    if (g_panel == nullptr) return ESP_FAIL;
+    // esp_lcd_panel_draw_bitmap() tự lo page addressing & control byte.
+    return esp_lcd_panel_draw_bitmap(g_panel, 0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                     g_framebuf);
 }
 
 static esp_err_t ssd1306_contrast(uint8_t v)
 {
-    ESP_ERROR_CHECK(oled_cmd(0x81));
-    return oled_cmd(v);
+    if (g_panel == nullptr) return ESP_FAIL;
+    return esp_lcd_panel_io_tx_param(g_panel_io, 0x81, &v, 1);
 }
 
 static esp_err_t ssd1306_invert(bool inv)
 {
-    return oled_cmd(inv ? 0xA7 : 0xA6);
+    if (g_panel == nullptr) return ESP_FAIL;
+    uint8_t cmd = inv ? 0xA7 : 0xA6;   // 0xA7 = invert, 0xA6 = normal
+    return esp_lcd_panel_io_tx_param(g_panel_io, cmd, nullptr, 0);
 }
 
 static esp_err_t ssd1306_scroll(bool right, uint8_t start_page, uint8_t end_page)
 {
-    ESP_ERROR_CHECK(oled_cmd(0x2E));                         // stop scroll
-    ESP_ERROR_CHECK(oled_cmd(right ? 0x26 : 0x27));          // direction
-    ESP_ERROR_CHECK(oled_cmd(0x00));                         // dummy byte
-    ESP_ERROR_CHECK(oled_cmd(start_page));
-    ESP_ERROR_CHECK(oled_cmd(0x00));                         // speed (frames)
-    ESP_ERROR_CHECK(oled_cmd(end_page));
-    ESP_ERROR_CHECK(oled_cmd(0x00));
-    ESP_ERROR_CHECK(oled_cmd(0xFF));
-    ESP_ERROR_CHECK(oled_cmd(0x2F));                         // start
-    return ESP_OK;
+    if (g_panel_io == nullptr) return ESP_FAIL;
+    // Deactivate trước (theo datasheet, phải deactivate trước khi cấu hình mới).
+    ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(g_panel_io, 0x2E, nullptr, 0));
+
+    uint8_t dir = right ? 0x26 : 0x27;   // 0x26 = right, 0x27 = left
+    uint8_t sp = (uint8_t)(start_page & 0x07);
+    uint8_t ep = (uint8_t)(end_page   & 0x07);
+    uint8_t setup[6] = {
+        dir,   // dir
+        0x00,  // dummy byte
+        sp,    // start page (0..7)
+        0x00,  // frame interval (0 = 5 frames)
+        ep,    // end page
+        0x00,  // dummy byte
+    };
+    return esp_lcd_panel_io_tx_param(g_panel_io, 0x2A, setup, sizeof(setup));
 }
 
-/* ========================================================== I2C INIT ===== */
-
-static esp_err_t i2c_bus_init(void)
+static void test_banner(const char *title)
 {
-    i2c_master_bus_config_t bus_cfg = {};
-    bus_cfg.i2c_port      = DISPLAY_I2C_NUM;
-    bus_cfg.sda_io_num    = DISPLAY_SDA_PIN;
-    bus_cfg.scl_io_num    = DISPLAY_SCL_PIN;
-    bus_cfg.clk_source    = I2C_CLK_SRC_DEFAULT;
-    bus_cfg.glitch_ignore_cnt = 7;
-    bus_cfg.flags.enable_internal_pullup = true;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &g_i2c_bus));
+    ESP_LOGI(TAG, "==> %s", title);
+}
 
-    i2c_device_config_t dev_cfg = {};
-    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    dev_cfg.device_address  = DISPLAY_I2C_ADDR;
-    dev_cfg.scl_speed_hz    = DISPLAY_I2C_SPEED_HZ;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(g_i2c_bus, &dev_cfg, &g_oled_dev));
+/* ============================================================ TESTS ======= */
 
-    // Warm-up: probe + chờ một chút để I2C driver queue settle.
-    // ESP-IDF v5 i2c_master đôi khi trả ESP_ERR_INVALID_STATE cho
-    // transaction ngay sau add_device nếu chưa có transaction nào.
-    vTaskDelay(pdMS_TO_TICKS(20));
-    esp_err_t probe = i2c_master_probe(g_i2c_bus, DISPLAY_I2C_ADDR, 100);
-    if (probe == ESP_OK) {
-        ESP_LOGI(TAG, "Probe 0x%02X OK - bus ready.", DISPLAY_I2C_ADDR);
-    } else {
-        ESP_LOGW(TAG, "Probe 0x%02X failed: %s (continuing, retry logic will handle)",
-                 DISPLAY_I2C_ADDR, esp_err_to_name(probe));
+static void test_0_scan(void)
+{
+    test_banner("0. I2C bus scan");
+    if (g_i2c_bus == nullptr) {
+        ESP_LOGE(TAG, "I2C bus not initialized.");
+        return;
     }
-    vTaskDelay(pdMS_TO_TICKS(20));
-    return ESP_OK;
-}
-
-static void i2c_scan(void)
-{
-    ESP_LOGI(TAG, "I2C scan on SDA=%d SCL=%d:", DISPLAY_SDA_PIN, DISPLAY_SCL_PIN);
     int found = 0;
-    for (uint8_t addr = 0x03; addr < 0x78; addr++) {
-        if (i2c_master_probe(g_i2c_bus, addr, 50) == ESP_OK) {
-            ESP_LOGI(TAG, "  0x%02X  <-- device", addr);
+    for (uint8_t addr = 0x03; addr < 0x78; ++addr) {
+        esp_err_t err = i2c_master_probe(g_i2c_bus, addr, 50);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "  ACK at 0x%02X", addr);
             found++;
         }
     }
     ESP_LOGI(TAG, "Scan done. %d device(s) found.", found);
 }
 
-/* ============================================================== TESTS ==== */
-
-static void test_banner(const char *title)
-{
-    ESP_LOGI(TAG, "==============================================");
-    ESP_LOGI(TAG, "TEST: %s", title);
-    ESP_LOGI(TAG, "==============================================");
-}
-
-static void test_0_scan(void)
-{
-    test_banner("0. I2C bus scan");
-    i2c_scan();
-}
-
 static void test_1_clear_fill(void)
 {
     test_banner("1. Clear & fill (alternating)");
-    fb_clear();  ssd1306_flush(); vTaskDelay(pdMS_TO_TICKS(600));
-    fb_fill();   ssd1306_flush(); vTaskDelay(pdMS_TO_TICKS(600));
-    fb_clear();  ssd1306_flush();
+    for (int i = 0; i < 3; i++) {
+        fb_clear(); ssd1306_flush(); vTaskDelay(pdMS_TO_TICKS(600));
+        fb_fill();  ssd1306_flush(); vTaskDelay(pdMS_TO_TICKS(600));
+    }
+    fb_clear(); ssd1306_flush();
 }
 
 static void test_2_text(void)
 {
     test_banner("2. Text rendering");
     fb_clear();
-    fb_text(0,  0, "HELLO ESP32 S3");
+    fb_text(0,  0, "HELLO WORLD");
     fb_text(0, 10, "SSD1306 128X64");
-    fb_text(0, 20, "I2C 100KHZ");
+    fb_text(0, 20, "I2C 0X3C 100K");
     fb_text(0, 30, "GPIO8 SDA");
     fb_text(0, 40, "GPIO9 SCL");
     fb_text(0, 50, "ADDR 0X3C");
@@ -444,8 +485,8 @@ static void test_3_pixel_line_rect_circle(void)
 static void test_4_mirror(void)
 {
     test_banner("4. Mirror X/Y verification");
-    // Váº½ chá»¯ "L" á»Ÿ gÃ³c (0,0) vÃ  "R" á»Ÿ gÃ³c (W-6,0) â€” náº¿u mirror Ä‘Ãºng
-    // thÃ¬ L náº±m pháº£i-trÃªn vÃ  R náº±m trÃ¡i-trÃªn (vÃ¬ xoay 180Â°).
+    // Vẽ chữ "L" ở góc (0,0) và "R" ở góc (W-6,0) — nếu mirror đúng
+    // thì L nằm phải-trên và R nằm trái-trên (vì xoay 180°).
     fb_clear();
     fb_text(0,             0, "L");
     fb_text(DISPLAY_WIDTH - 6, 0, "R");
@@ -495,7 +536,7 @@ static void test_7_scroll(void)
 {
     test_banner("7. Horizontal scroll (3s)");
     fb_clear();
-    // Váº½ 1 thanh dá»c á»Ÿ giá»¯a â€” quan sÃ¡t nÃ³ cuá»™n trÃ¡i/pháº£i
+    // Vẽ 1 thanh dọc ở giữa — quan sát nó cuộn trái/phải
     for (int y = 0; y < DISPLAY_HEIGHT; y++)
         fb_pixel(DISPLAY_WIDTH / 2, y, true);
     fb_text(20, 28, "SCROLLING");
@@ -505,7 +546,7 @@ static void test_7_scroll(void)
     vTaskDelay(pdMS_TO_TICKS(3000));
     ssd1306_scroll(false, 0, 7);
     vTaskDelay(pdMS_TO_TICKS(3000));
-    oled_cmd(0x2E);   // stop scroll
+    esp_lcd_panel_io_tx_param(g_panel_io, 0x2E, nullptr, 0);   // stop scroll
 }
 
 static void test_8_bouncing_ball(void)
@@ -554,8 +595,8 @@ static void test_10_bitmap_logo(void)
 {
     test_banner("10. Bitmap (checkerboard 8x8 logo)");
 
-    // Bitmap Ä‘Æ¡n giáº£n: chá»¯ "S3" 16x32 pixel (má»—i char 8x32), MSB = pixel trÃªn
-    // Má»—i cá»™t = 1 byte. Má»—i glyph = 8 cá»™t Ã— 4 byte (32 rows / 8 bits).
+    // Bitmap đơn giản: chữ "S3" 16x32 pixel (mỗi char 8x32), MSB = pixel trên
+    // Mỗi cột = 1 byte. Mỗi glyph = 8 cột × 4 byte (32 rows / 8 bits).
     static const uint8_t logo_S[8][4] = {
         {0xFC, 0xFE, 0x07, 0x03},
         {0x07, 0x07, 0x07, 0x07},
@@ -618,8 +659,8 @@ static void print_menu(void)
 {
     printf("\n");
     printf("==============================================\n");
-    printf(" OLED SSD1306 Test Menu (%dx%d @ 0x%02X)\n",
-           DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_I2C_ADDR);
+    printf(" OLED SSD1306 Test Menu (%dx%d)\n",
+           DISPLAY_WIDTH, DISPLAY_HEIGHT);
     printf(" SDA=%d  SCL=%d  MirrorX=%d MirrorY=%d\n",
            DISPLAY_SDA_PIN, DISPLAY_SCL_PIN,
            DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
@@ -699,6 +740,8 @@ static void console_task(void *arg)
             run_all();
         } else if (c == 'r' || c == 'R') {
             ESP_LOGW(TAG, "Re-initializing OLED...");
+            if (g_panel    != nullptr) { esp_lcd_panel_del(g_panel);    g_panel    = nullptr; }
+            if (g_panel_io != nullptr) { esp_lcd_panel_io_del(g_panel_io); g_panel_io = nullptr; }
             ESP_ERROR_CHECK(ssd1306_init());
         } else if (c == 'q' || c == 'Q') {
             ESP_LOGW(TAG, "Quitting menu. Device still running.");
@@ -721,20 +764,14 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Boot. ESP32-S3-WROOM-1 OLED test firmware.");
     ESP_LOGI(TAG, "Free heap: %u bytes", (unsigned)esp_get_free_heap_size());
 
-    // Init I2C + OLED
-    ESP_ERROR_CHECK(i2c_bus_init());
-    ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d %d Hz).",
-             DISPLAY_SDA_PIN, DISPLAY_SCL_PIN, DISPLAY_I2C_SPEED_HZ);
-
     ESP_ERROR_CHECK(ssd1306_init());
     ESP_LOGI(TAG, "SSD1306 initialized.");
 
-    // Init linenoise console (dÃ¹ng UART0 / USB-CDC)
-    esp_console_config_t console_cfg = {
-        .max_cmdline_length = 256,
-        .max_cmdline_args   = 8,
-        .hint_color         = 0,
-    };
+    // Init linenoise console (dùng UART0 / USB-CDC)
+    esp_console_config_t console_cfg = {};
+    console_cfg.max_cmdline_length = 256;
+    console_cfg.max_cmdline_args   = 8;
+    // hint_color, hint_bold, heap_alloc_caps để mặc định 0.
     ESP_ERROR_CHECK(esp_console_init(&console_cfg));
     linenoiseSetDumbMode(1);
 
@@ -750,10 +787,7 @@ extern "C" void app_main(void)
     ssd1306_flush();
 
 
-    // Cháº¡y menu trÃªn core 1 (app core), priority tháº¥p Ä‘á»ƒ khÃ´ng block.
+    // Chạy menu trên core 1 (app core), priority thấp để không block.
     xTaskCreatePinnedToCore(console_task, "oled_test_menu",
                             4096, NULL, 4, NULL, 1);
 }
-
-
-
