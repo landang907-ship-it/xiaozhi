@@ -1,0 +1,40 @@
+# ============================================================================
+# sdkconfig.defaults — Default config cho project test_speaker
+# ----------------------------------------------------------------------------
+# Áp dụng cho ESP32-S3-WROOM-1 (N16R8, 4MB Flash, 2MB Octal PSRAM)
+# ============================================================================
+
+# === Target ===
+CONFIG_IDF_TARGET="esp32s3"
+
+# === Bootloader / Flash ===
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# === PSRAM (chip N16R8: 2MB Octal PSRAM) ===
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_MEMTEST=y
+
+# === FreeRTOS ===
+CONFIG_FREERTOS_HZ=1000
+
+# === Console / Linenoise (dùng UART0 ra COM port) ===
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_CONSOLE_UART=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+
+# === Logs ===
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
+CONFIG_LOG_COLORS=y
+
+# === Watchdog ===
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+CONFIG_ESP_TASK_WDT=y
+
+# === I2S (cần cho MAX98357A) ===
+# Driver I2S mới đã có sẵn trong esp-idf; chỉ cần bật log
+CONFIG_I2S_ISR_IRAM_SAFE=y
