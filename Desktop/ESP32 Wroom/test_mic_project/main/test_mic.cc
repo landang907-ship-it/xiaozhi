@@ -55,7 +55,7 @@ static esp_err_t mic_init(void) {
         i2s_del_channel(s_rx);
         s_rx = nullptr;
     }
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_SLAVE);
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);  // INMP441 is passive, ESP32 must drive BCLK+WS
     chan_cfg.auto_clear = true;
     esp_err_t err = i2s_new_channel(&chan_cfg, nullptr, &s_rx);
     if (err != ESP_OK) {
