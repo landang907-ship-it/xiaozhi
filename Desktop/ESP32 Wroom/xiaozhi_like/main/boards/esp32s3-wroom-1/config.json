@@ -1,0 +1,15 @@
+{
+  "target": "esp32s3",
+  "builds": [
+    {
+      "name": "esp32s3-wroom-1",
+      "sdkconfig_append": [
+        "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y",
+        "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"partitions/v2/4m.csv\"",
+        "CONFIG_WAKE_WORD_DISABLED=y",
+        "CONFIG_ESP_CONSOLE_USB_CDC=y",
+        "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n"
+      ]
+    }
+  ]
+}

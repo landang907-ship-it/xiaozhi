@@ -1,0 +1,48 @@
+# ESP32-S3-WROOM-1 (N16R8: 4MB flash, 2MB Octal PSRAM)
+# === Target ===
+CONFIG_IDF_TARGET="esp32s3"
+
+# === Flash ===
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# === Partition table (custom 4MB) ===
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/v2/4m.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# === Console (USB CDC, keep Serial Monitor) ===
+CONFIG_ESP_CONSOLE_USB_CDC=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n
+CONFIG_ESP_CONSOLE_UART=n
+CONFIG_ESP_CONSOLE_NONE=n
+
+# === PSRAM (2MB Octal) ===
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# === WiFi ===
+CONFIG_ESP32S3_WIFI_ENABLED=y
+CONFIG_ESP32S3_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP32S3_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_ESP32S3_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP32S3_MAX_WIFI_STA_CONN=1
+
+# === FreeRTOS ===
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=4096
+
+# === Wake word: DISABLED (use GPIO47 button instead) ===
+# (custom kconfig, no IDF symbol -- handled in board code)
+
+# === Board type ===
+# (custom kconfig, no IDF symbol -- handled in board code)
+
+# === Audio ===
+# (custom kconfig, no IDF symbol -- handled in audio_codec.cc)
+
+# === WebSocket (for xiaozhi protocol) ===
+CONFIG_ESP_TLS_USING_MBEDTLS=y

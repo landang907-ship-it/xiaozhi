@@ -1,0 +1,28 @@
+Activating ESP-IDF 5.4
+Setting IDF_PATH to 'C:\Users\HP\esp\esp-idf'.
+* Checking python version ... 3.14.4
+* Checking python dependencies ... OK
+* Deactivating the current ESP-IDF environment (if any) ... OK
+* Establishing a new ESP-IDF environment ... OK
+* Identifying shell ... cmd.exe
+* Detecting outdated tools in system ... OK - no outdated tools found
+=== Running idf.py app (after format-warning fixes) ===
+=== Started: Sun 06/21/2026 22:56:15.98 ===
+WARNING: Python interpreter "C:\Users\HP\.espressif\python_env\idf5.4_py3.11_env\Scripts\python.exe" used to start idf.py is not from installed venv "C:\Users\HP\.espressif\python_env\idf5.4_py3.14_env"
+Executing action: app
+Running ninja in directory 'C:\Users\HP\Desktop\ESP32 Wroom\xiaozhi_like\build'
+Executing "ninja app"...
+[1/3] Linking CXX executable xiaozhi_like.elf
+FAILED: xiaozhi_like.elf 
+C:\Windows\System32\cmd.exe /C "cd . && C:\Users\HP\.espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin\xtensa-esp32s3-elf-g++.exe -mlongcalls  -fno-builtin-memcpy -fno-builtin-memset -fno-builtin-bzero -fno-builtin-stpcpy -fno-builtin-strncpy -Wl,--cref -Wl,--defsym=IDF_TARGET_ESP32S3=0 "-Wl,--Map=C:/Users/HP/Desktop/ESP32 Wroom/xiaozhi_like/build/xiaozhi_like.map" -Wl,--no-warn-rwx-segments -Wl,--orphan-handling=warn -fno-rtti -fno-lto -Wl,--gc-sections -Wl,--warn-common -T esp32s3.peripherals.ld -T esp32s3.rom.ld -T esp32s3.rom.api.ld -T esp32s3.rom.bt_funcs.ld -T esp32s3.rom.libgcc.ld -T esp32s3.rom.wdt.ld -T esp32s3.rom.version.ld -T esp32s3.rom.ble_master.ld -T esp32s3.rom.ble_50.ld -T esp32s3.rom.ble_smp.ld -T esp32s3.rom.ble_dtm.ld -T esp32s3.rom.ble_test.ld -T esp32s3.rom.ble_scan.ld -T esp32s3.rom.newlib.ld -T memory.ld -T sections.ld @CMakeFiles\xiaozhi_like.elf.rsp -o xiaozhi_like.elf && cd ."
+C:/Users/HP/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(esp32s3_audio_codec.cc.obj):(.literal._ZN17Esp32S3AudioCodecD2Ev+0x4): undefined reference to `AudioCodec::~AudioCodec()'
+C:/Users/HP/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(esp32s3_audio_codec.cc.obj):(.literal._ZN17Esp32S3AudioCodecC2EP17i2s_channel_obj_tS1_ii+0x4): undefined reference to `AudioCodec::AudioCodec(i2s_channel_obj_t*, i2s_channel_obj_t*, int, int)'
+C:/Users/HP/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(esp32s3_audio_codec.cc.obj): in function `Esp32S3AudioCodec::~Esp32S3AudioCodec()':
+C:/Users/HP/Desktop/ESP32 Wroom/xiaozhi_like/main/audio/esp32s3_audio_codec.cc:35:(.text._ZN17Esp32S3AudioCodecD2Ev+0xa): undefined reference to `AudioCodec::~AudioCodec()'
+C:/Users/HP/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(esp32s3_audio_codec.cc.obj): in function `Esp32S3AudioCodec::Esp32S3AudioCodec(i2s_channel_obj_t*, i2s_channel_obj_t*, int, int)':
+C:/Users/HP/Desktop/ESP32 Wroom/xiaozhi_like/main/audio/esp32s3_audio_codec.cc:19:(.text._ZN17Esp32S3AudioCodecC2EP17i2s_channel_obj_tS1_ii+0xe): undefined reference to `AudioCodec::AudioCodec(i2s_channel_obj_t*, i2s_channel_obj_t*, int, int)'
+collect2.exe: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+ninja failed with exit code 1, output of the command is in the C:\Users\HP\Desktop\ESP32 Wroom\xiaozhi_like\build\log\idf_py_stderr_output_1664 and C:\Users\HP\Desktop\ESP32 Wroom\xiaozhi_like\build\log\idf_py_stdout_output_1664
+'Sun' is not recognized as an internal or external command,
+operable program or batch file.

@@ -1,0 +1,39 @@
+# === Build outputs ===
+build/
+sdkconfig
+sdkconfig.old
+*.elf
+*.bin
+*.map
+*.hex
+
+# === Python ===
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+monitor_*.txt
+
+# === Temp xiaozhi upstream (clone tạm để copy, KHÔNG commit) ===
+tmp/
+xiaozhi_src_repo/
+xiaozhi_src/
+
+# === Sensitive (WiFi creds, activation tokens) ===
+nvs.bin
+secrets.h
+
+# === OS ===
+desktop.ini
+"xiaozhi_src/"  
