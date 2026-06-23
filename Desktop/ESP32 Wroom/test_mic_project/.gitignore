@@ -1,0 +1,20 @@
+# Build output
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+
+# Flash & monitor logs
+*.log
+*.err
+*.txt
+!sdkconfig.defaults
+!README.md
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db
