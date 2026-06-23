@@ -1,0 +1,13 @@
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+*.log
+*.err
+*.txt
+!sdkconfig.defaults
+!README.md
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

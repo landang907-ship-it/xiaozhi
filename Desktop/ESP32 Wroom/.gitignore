@@ -1,0 +1,124 @@
+# Build artifacts
+# Tool caches / IDE files (ESP-IDF, VSCode, Claude, Copilot, etc.)
+.espressif/
+.espressif_tools_cache/
+.cline/
+.cline.bak/
+.cline.bak_*/
+.codex/
+.copilot/
+.android/
+.antigravity-ide/
+.gemini/
+.ollama/
+.agents/
+.platformio/
+.gradle/
+.gitconfig
+.lesshst
+.vscode/
+.vscode-shared/
+# Desktop/ homedir clutter that leaked into repo
+"3D Objects/"
+"Android Studio.lnk"
+"Antigravity.lnk"
+"DOPSoft 4.00.16.lnk"
+"ESP32"
+"EVKey64 - Shortcut.lnk"
+"Excel.lnk"
+"Git GUI.lnk"
+"Hermes Desktop.lnk"
+"Microsoft Edge.lnk"
+"PowerPoint.lnk"
+"Visual Studio Code.lnk"
+"Word.lnk"
+"Zalo.lnk"
+"loona - Copy.rar"
+"loona - Copy/"
+loona.rar
+Untitled.png
+Untitled1.png
+c3/
+claude.txt
+delta/
+deploy.bat
+desktop.ini
+dirlist.txt
+driver/
+esp32-c3.txt
+gitignore.txt
+hermes/
+"l\u00e2n - Chrome.lnk"
+xiaozhi-temp/
+# Symlink'd directories (point outside repo)
+Documents/
+Downloads/
+Favorites/
+Links/
+Music/
+Pictures/
+"Saved Games/"
+Searches/
+Videos/
+"WPS Cloud Files/"
+# Individual files outside project scope
+../*.png
+../*.rar
+../*.lnk
+../*.docx
+../out2.txt
+../out3.txt
+../out4.txt
+../dirlist.txt
+../gitignore.txt
+../ntuser.*
+../*.LOG*
+../NTUSER.*
+../c3/
+../delta/
+../hermes/
+../esp/
+../flutter/
+../ai_camera_app/
+../antigravity/
+../z7958872074927_*.jpg
+../c3/
+../xiaozhi-temp/
+../deploy.bat
+build/
+sdkconfig
+sdkconfig.old
+*.elf
+*.bin
+*.map
+
+# Logs and output files
+*.log
+*.err
+*.out
+build_*
+flash_*
+monitor_*
+mic_*.log
+p2_4d_boot.log
+mic_test_stdout.log
+mic_test_stderr.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary scripts (not part of the project)
+*.tmp
+run_*.py
+fix_*.py
+do_*.ps1

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32-S3 Audio Stream</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 12px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 18px; margin-bottom: 8px; color: #38bdf8; }
+  .panel {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .status {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 8px;
+  }
+  .status.ok { background: #16a34a; color: #fff; }
+  .status.bad { background: #dc2626; color: #fff; }
+  .status.warn { background: #eab308; color: #000; }
+
+  canvas {
+    width: 100%;
+    height: 140px;
+    background: #020617;
+    border-radius: 6px;
+    display: block;
+  }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 auto;
+    min-width: 80px;
+    padding: 10px 12px;
+    background: #2563eb;
+    color: white;
+    border: 0;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button.danger { background: #dc2626; }
+  button.danger:hover { background: #b91c1c; }
+  button.muted { background: #475569; }
+  button.active { background: #16a34a; box-shadow: 0 0 0 2px #4ade80 inset; }
+
+  .meters {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .meter {
+    background: #020617;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .meter .label { font-size: 11px; color: #94a3b8; }
+  .meter .value { font-size: 22px; font-weight: bold; color: #38bdf8; }
+  .info { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+  code { background: #020617; padding: 2px 6px; border-radius: 4px; color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<h1>🎤 ESP32-S3 Audio Stream
+  <span id="ws-status" class="status bad">● Disconnected</span>
+</h1>
+
+<div class="panel">
+  <div>📊 Waveform (live PCM)</div>
+  <canvas id="wave"></canvas>
+  <div class="meters">
+    <div class="meter">
+      <div class="label">PEAK</div>
+      <div class="value" id="peak-v">0.00</div>
+    </div>
+    <div class="meter">
+      <div class="label">RMS</div>
+      <div class="value" id="rms-v">0.00</div>
+    </div>
+    <div class="meter">
+      <div class="label">FREQ (Hz)</div>
+      <div class="value" id="freq-v">0</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div>📈 Spectrum (FFT 256 bins)</div>
+  <canvas id="spec"></canvas>
+</div>
+
+<div class="panel">
+  <div>🎛️ Điều khiển</div>
+  <div class="row">
+    <button id="btn-stream-on"  class="active">▶️ Bắt đầu</button>
+    <button id="btn-stream-off" class="danger">⏹ Dừng</button>
+  </div>
+  <div class="row">
+    <button data-mode="0">📉 Waveform</button>
+    <button data-mode="1">📊 VU Meter</button>
+    <button data-mode="2">🌊 Combined</button>
+  </div>
+  <div class="info">
+    WebSocket URL: <code id="ws-url"></code><br>
+    Sample rate: <code>16 kHz</code>, 16-bit mono PCM (little-endian)
+  </div>
+</div>
+
+<div class="panel">
+  <div>🎙️ Speech → OLED <span id="stt-status" class="status warn">chưa bật</span></div>
+  <div class="info">
+    Nhấn <b>Bắt đầu</b> → cho phép micro → nói tiếng Việt → text sẽ được gửi sang ESP32
+    và hiển thị trên màn hình OLED SSD1306 128×64 (font 5×7, tối đa 21 ký tự / dòng × 7 dòng).
+  </div>
+  <div class="row">
+    <button id="btn-stt-start" class="active">🎤 Bắt đầu nhận giọng nói</button>
+    <button id="btn-stt-stop"  class="danger">⏹ Dừng</button>
+  </div>
+  <div class="row">
+    <button id="btn-stt-clear">🧹 Xóa</button>
+    <button id="btn-stt-test">✉️ Gửi test "xin chào"</button>
+  </div>
+  <div style="margin-top:8px;font-size:13px;color:#94a3b8;">Kết quả:</div>
+  <div id="stt-text"
+       style="min-height:48px;padding:8px;background:#020617;border-radius:6px;border:1px solid #334155;
+              color:#e2e8f0;font-family:monospace;white-space:pre-wrap;word-break:break-word;">
+    <i style="color:#64748b;">(chưa có)</i>
+  </div>
+  <div class="info" id="stt-info">
+    Browser: yêu cầu Chrome / Edge / Safari (Web Speech API không có trên Firefox).
+  </div>
+</div>
+
+<script>
+(() => {
+  const wsStatus = document.getElementById('ws-status');
+  const waveCv   = document.getElementById('wave');
+  const specCv   = document.getElementById('spec');
+  const peakV    = document.getElementById('peak-v');
+  const rmsV     = document.getElementById('rms-v');
+  const freqV    = document.getElementById('freq-v');
+  const wsUrlEl  = document.getElementById('ws-url');
+
+  const wctx = waveCv.getContext('2d');
+  const sctx = specCv.getContext('2d');
+  waveCv.width = 800; waveCv.height = 140;
+  specCv.width = 800; specCv.height = 140;
+
+  // WebSocket URL
+  const host = location.hostname || '192.168.1.x';
+  const wsUrl = `ws://${host}/ws`;
+  wsUrlEl.textContent = wsUrl;
+
+  let ws = null;
+  let connected = false;
+  let buffer = [];          // pending audio samples (Int16)
+  let display = new Float32Array(800);  // last waveform for display
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => {
+      connected = true;
+      wsStatus.textContent = '● Connected';
+      wsStatus.className = 'status ok';
+      console.log('WS open', wsUrl);
+    };
+    ws.onclose = () => {
+      connected = false;
+      wsStatus.textContent = '● Disconnected (retry 2s)';
+      wsStatus.className = 'status bad';
+      setTimeout(connect, 2000);
+    };
+    ws.onerror = (e) => { console.warn('WS err', e); };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') return; // ignore text frames
+      const dv = new DataView(ev.data);
+      const n = dv.byteLength / 2;
+      for (let i = 0; i < n; i++) {
+        buffer.push(dv.getInt16(i * 2, true)); // little-endian
+      }
+      // Cap buffer
+      while (buffer.length > 8192) buffer.shift();
+    };
+  }
+  connect();
+
+  // --- Render loop ---
+  function drawWave() {
+    wctx.fillStyle = '#020617';
+    wctx.fillRect(0, 0, waveCv.width, waveCv.height);
+    wctx.strokeStyle = '#38bdf8';
+    wctx.lineWidth = 1.5;
+    wctx.beginPath();
+    const N = display.length;
+    for (let x = 0; x < N; x++) {
+      const v = display[x];
+      const y = waveCv.height / 2 - v * (waveCv.height / 2 - 4);
+      if (x === 0) wctx.moveTo(x, y); else wctx.lineTo(x, y);
+    }
+    wctx.stroke();
+    // Baseline
+    wctx.strokeStyle = '#334155';
+    wctx.beginPath();
+    wctx.moveTo(0, waveCv.height / 2);
+    wctx.lineTo(N, waveCv.height / 2);
+    wctx.stroke();
+  }
+
+  // Tiny FFT for spectrum (radix-2, 256 points, real input)
+  function fft(re, im) {
+    const N = re.length;
+    // Bit reversal
+    let j = 0;
+    for (let i = 1; i < N; i++) {
+      let bit = N >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        [re[i], re[j]] = [re[j], re[i]];
+        [im[i], im[j]] = [im[j], im[i]];
+      }
+    }
+    for (let len = 2; len <= N; len <<= 1) {
+      const ang = -2 * Math.PI / len;
+      const wlR = Math.cos(ang), wlI = Math.sin(ang);
+      for (let i = 0; i < N; i += len) {
+        let wR = 1, wI = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const uR = re[i + k], uI = im[i + k];
+          const vR = re[i + k + len / 2] * wR - im[i + k + len / 2] * wI;
+          const vI = re[i + k + len / 2] * wI + im[i + k + len / 2] * wR;
+          re[i + k] = uR + vR;
+          im[i + k] = uI + vI;
+          re[i + k + len / 2] = uR - vR;
+          im[i + k + len / 2] = uI - vI;
+          const nwR = wR * wlR - wI * wlI;
+          const nwI = wR * wlI + wI * wlR;
+          wR = nwR; wI = nwI;
+        }
+      }
+    }
+  }
+
+  function drawSpec(samples) {
+    sctx.fillStyle = '#020617';
+    sctx.fillRect(0, 0, specCv.width, specCv.height);
+    if (samples.length < 256) return;
+    const N = 256;
+    const re = new Float32Array(N);
+    const im = new Float32Array(N);
+    // Hann window + downsample
+    let step = Math.floor(samples.length / N);
+    if (step < 1) step = 1;
+    for (let i = 0; i < N; i++) {
+      const idx = Math.min(samples.length - 1, i * step);
+      const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+      re[i] = samples[idx] / 32768 * w;
+    }
+    fft(re, im);
+    const bins = specCv.width / 4;
+    sctx.fillStyle = '#38bdf8';
+    for (let i = 1; i < bins; i++) {
+      // Average a few FFT bins
+      const k = Math.floor(i * (N / 2 - 1) / bins);
+      const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (N / 2);
+      const h = Math.min(specCv.height, mag * specCv.height * 4);
+      sctx.fillRect(i * 4, specCv.height - h, 3, h);
+    }
+  }
+
+  function process() {
+    if (buffer.length >= 800) {
+      const n = 800;
+      const slice = buffer.splice(0, n);
+      // Compute peak / rms for meter
+      let peak = 0, sumSq = 0;
+      let zc = 0, prev = 0;
+      for (let i = 0; i < slice.length; i++) {
+        const v = slice[i];
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        sumSq += v * v;
+        const s = v > 0 ? 1 : (v < 0 ? -1 : 0);
+        if (i > 0 && s !== 0 && prev !== 0 && s !== prev) zc++;
+        if (s !== 0) prev = s;
+      }
+      const rms = Math.sqrt(sumSq / slice.length);
+      peakV.textContent = (peak / 32768).toFixed(2);
+      rmsV.textContent  = (rms  / 32768).toFixed(2);
+      freqV.textContent = Math.round(zc * 16000 / (2 * slice.length));
+
+      for (let i = 0; i < n; i++) display[i] = slice[i] / 32768;
+      drawWave();
+      drawSpec(slice);
+    }
+    requestAnimationFrame(process);
+  }
+  requestAnimationFrame(process);
+
+  // --- Buttons ---
+  document.getElementById('btn-stream-on').onclick  = () => postCtrl('stream=1');
+  document.getElementById('btn-stream-off').onclick = () => postCtrl('stream=0');
+  document.querySelectorAll('button[data-mode]').forEach(b => {
+    b.onclick = () => postCtrl('mode=' + b.dataset.mode);
+  });
+
+  async function postCtrl(payload) {
+    try {
+      await fetch('/ctrl', { method: 'POST', body: payload });
+    } catch (e) {
+      console.warn('POST /ctrl failed', e);
+    }
+  }
+
+  // ===================================================================
+  // Speech Recognition (Web Speech API) → POST /api/text cho ESP32 OLED
+  // ===================================================================
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const sttStatus  = document.getElementById('stt-status');
+  const sttText    = document.getElementById('stt-text');
+  const sttInfo    = document.getElementById('stt-info');
+  const btnStart   = document.getElementById('btn-stt-start');
+  const btnStop    = document.getElementById('btn-stt-stop');
+  const btnClear   = document.getElementById('btn-stt-clear');
+  const btnTest    = document.getElementById('btn-stt-test');
+
+  let recognition = null;
+  let recognizing = false;
+  let finalTranscript = '';
+  let interimTranscript = '';
+  let pendingFinal = '';   // text chờ gửi đi (sau khi kết thúc câu)
+  let sendTimer = null;
+  const SEND_DEBOUNCE_MS = 700;   // chờ 0.7s im lặng rồi gửi
+
+  function setSttStatus(text, cls) {
+    sttStatus.textContent = text;
+    sttStatus.className = 'status ' + cls;
+  }
+
+  function showSttText(finalText, interimText) {
+    let html = '';
+    if (finalText)    html += '<span style="color:#e2e8f0">' + escapeHtml(finalText) + '</span>';
+    if (interimText)  html += ' <span style="color:#64748b;font-style:italic;">' + escapeHtml(interimText) + '</span>';
+    if (!html)        html = '<i style="color:#64748b;">(chưa có)</i>';
+    sttText.innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => {
+      switch (c) {
+        case '&':  return String.fromCharCode(38,97,109,112,59);   // & + amp;
+        case '<':  return String.fromCharCode(60,108,116,59);      // < + lt;
+        case '>':  return String.fromCharCode(62,103,116,59);      // > + gt;
+        case '"':  return String.fromCharCode(34,113,117,111,116,59); // " + quot;
+        case "'":  return String.fromCharCode(39,35,51,57,59);     // ' + #39;
+      }
+      return c;
+    });
+  }
+
+  async function sendTextToEsp32(text) {
+    if (!text) return;
+    try {
+      const resp = await fetch('/api/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text })
+      });
+      console.log('POST /api/text ->', resp.status, text);
+    } catch (e) {
+      console.warn('POST /api/text failed', e);
+    }
+  }
+
+  function setupRecognition() {
+    if (!SR) {
+      setSttStatus('không hỗ trợ', 'bad');
+      sttInfo.innerHTML = '⚠️ Browser không có <code>SpeechRecognition</code>. Vui lòng dùng Chrome / Edge / Safari.';
+      btnStart.disabled = true;
+      btnStop.disabled  = true;
+      return null;
+    }
+    const rec = new SR();
+    rec.lang = 'vi-VN';
+    rec.interimResults = true;
+    rec.continuous     = true;
+    rec.maxAlternatives = 1;
+
+    rec.onstart = () => {
+      recognizing = true;
+      setSttStatus('đang nghe...', 'ok');
+      finalTranscript = '';
+      interimTranscript = '';
+      pendingFinal = '';
+      showSttText('', '');
+    };
+    rec.onerror = (ev) => {
+      console.warn('STT error', ev.error);
+      setSttStatus('lỗi: ' + ev.error, 'bad');
+    };
+    rec.onend = () => {
+      recognizing = false;
+      setSttStatus('đã dừng', 'warn');
+      // gửi nốt nếu còn text pending
+      if (pendingFinal.trim()) {
+        sendTextToEsp32(pendingFinal.trim());
+        pendingFinal = '';
+      }
+    };
+    rec.onresult = (ev) => {
+      interimTranscript = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) {
+          finalTranscript += r[0].transcript + ' ';
+          pendingFinal    += r[0].transcript + ' ';
+        } else {
+          interimTranscript += r[0].transcript;
+        }
+      }
+      showSttText(finalTranscript, interimTranscript);
+
+      // debounce: sau 0.7s không có interim mới -> gửi
+      if (sendTimer) clearTimeout(sendTimer);
+      sendTimer = setTimeout(() => {
+        const t = pendingFinal.trim();
+        if (t.length > 0) {
+          sendTextToEsp32(t);
+          pendingFinal = '';
+        }
+      }, SEND_DEBOUNCE_MS);
+    };
+    return rec;
+  }
+
+  recognition = setupRecognition();
+
+  btnStart.onclick = () => {
+    if (!recognition) return;
+    if (recognizing) return;
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn('start() failed', e);
+    }
+  };
+  btnStop.onclick = () => {
+    if (!recognition) return;
+    try { recognition.stop(); } catch (e) {}
+  };
+  btnClear.onclick = () => {
+    finalTranscript = '';
+    interimTranscript = '';
+    pendingFinal = '';
+    showSttText('', '');
+  };
+  btnTest.onclick = () => {
+    sendTextToEsp32('xin chào');
+    showSttText('xin chào ', '');
+  };
+})();
+</script>
+
+</body>
+</html>

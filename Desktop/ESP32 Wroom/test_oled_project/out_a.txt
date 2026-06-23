@@ -1,0 +1,52 @@
+>>> sent 'a' <<<
+a
+[0;32mI (3294) TestOled: ==============================================[0m
+[0;32mI (3294) TestOled: TEST: 0. I2C bus scan[0m
+[0;32mI (3295) TestOled: ==============================================[0m
+[0;32mI (3301) TestOled: I2C scan on SDA=8 SCL=9:[0m
+[0;32mI (3315) TestOled:   0x3C  <-- device[0m
+[0;32mI (3323) TestOled: Scan done. 1 device(s) found.[0m
+[0;32mI (3324) TestOled: Test 0 done. Pausing 1s...[0m
+[0;32mI (4324) TestOled: ==============================================[0m
+[0;32mI (4324) TestOled: TEST: 1. Clear & fill (alternating)[0m
+[0;32mI (4326) TestOled: ==============================================[0m
+[0;32mI (5818) TestOled: Test 1 done. Pausing 1s...[0m
+[0;32mI (6818) TestOled: ==============================================[0m
+[0;32mI (6818) TestOled: TEST: 2. Text rendering[0m
+[0;32mI (6818) TestOled: ==============================================[0m
+[0;32mI (8921) TestOled: Test 2 done. Pausing 1s...[0m
+[0;32mI (9921) TestOled: ==============================================[0m
+[0;32mI (9921) TestOled: TEST: 3. Pixel / Line / Rect / Circle[0m
+[0;32mI (9923) TestOled: ==============================================[0m
+[0;32mI (14211) TestOled: Test 3 done. Pausing 1s...[0m
+[0;32mI (15211) TestOled: ==============================================[0m
+[0;32mI (15211) TestOled: TEST: 4. Mirror X/Y verification[0m
+[0;32mI (15212) TestOled: ==============================================[0m
+[0;32mI (18315) TestOled: Test 4 done. Pausing 1s...[0m
+[0;32mI (19315) TestOled: ==============================================[0m
+[0;32mI (19315) TestOled: TEST: 5. Contrast sweep (0 -> 255)[0m
+[0;32mI (19317) TestOled: ==============================================[0m
+[0;32mI (23500) TestOled: Test 5 done. Pausing 1s...[0m
+[0;32mI (24500) TestOled: ==============================================[0m
+[0;32mI (24500) TestOled: TEST: 6. Invert (blink 3x)[0m
+[0;32mI (24501) TestOled: ==============================================[0m
+[0;32mI (27004) TestOled: Test 6 done. Pausing 1s...[0m
+[0;32mI (28004) TestOled: ==============================================[0m
+[0;32mI (28004) TestOled: TEST: 7. Horizontal scroll (3s)[0m
+[0;32mI (28005) TestOled: ==============================================[0m
+[0;32mI (34114) TestOled: Test 7 done. Pausing 1s...[0m
+[0;32mI (35114) TestOled: ==============================================[0m
+[0;32mI (35114) TestOled: TEST: 8. Bouncing ball animation (8s)[0m
+[0;32mI (35116) TestOled: ==============================================[0m
+[0;32mI (68373) TestOled: Test 8 done. Pausing 1s...[0m
+[0;32mI (69373) TestOled: ==============================================[0m
+[0;32mI (69373) TestOled: TEST: 9. Progress bar animation[0m
+[0;32mI (69374) TestOled: ==============================================[0m
+[0;32mI (83017) TestOled: Test 9 done. Pausing 1s...[0m
+[0;32mI (84017) TestOled: ==============================================[0m
+[0;32mI (84017) TestOled: TEST: 10. Bitmap (checkerboard 8x8 logo)[0m
+[0;32mI (84019) TestOled: ==============================================[0m
+[0;32mI (87122) TestOled: Test 10 done. Pausing 1s...[0m
+[0;32mI (88122) TestOled: ==============================================[0m
+[0;32mI (88122) TestOled: TEST: 11. Stress test (full RAM flush x 100)[0m
+[0;32mI (88124) TestOled: ==============================================[0m
