@@ -42,45 +42,37 @@ void Esp32S3AudioCodec::Start() {
 
 void Esp32S3AudioCodec::EnableInput(bool enable) {
     input_enabled_ = enable;
-    if (rx_handle_ == nullptr) return;
-    if (enable) {
-        i2s_channel_enable(rx_handle_);
-    } else {
-        i2s_channel_disable(rx_handle_);
-    }
+    // Channels already enabled/disabled by board HAL in Initialize().
+    // Codec layer only tracks enable flag, does NOT re-enable channels.
 }
 
 void Esp32S3AudioCodec::EnableOutput(bool enable) {
     output_enabled_ = enable;
-    if (tx_handle_ == nullptr) return;
-    if (enable) {
-        i2s_channel_enable(tx_handle_);
-    } else {
-        i2s_channel_disable(tx_handle_);
-    }
+    // Channels already enabled/disabled by board HAL in Initialize().
+    // Codec layer only tracks enable flag, does NOT re-enable channels.
 }
 
 int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
     if (!input_enabled_ || rx_handle_ == nullptr) return 0;
 
-    // Mic reads 32-bit words (INMP441 24-bit data left-justified in 32-bit slot).
-    std::vector<int32_t> raw(samples);
+    // INMP441 outputs 24-bit data in 32-bit slot (Philips format, left-justified).
+    // We read as 32-bit and extract left channel only (step by 2 since it's stereo slot).
+    std::vector<int32_t> raw(samples * 2);
     size_t bytes_read = 0;
     esp_err_t ret = i2s_channel_read(rx_handle_, raw.data(),
-        samples * sizeof(int32_t), &bytes_read, portMAX_DELAY);
+        raw.size() * sizeof(int32_t), &bytes_read, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "i2s read failed: %s", esp_err_to_name(ret));
         return 0;
     }
-    int samples_read = bytes_read / sizeof(int32_t);
+    int words_read = bytes_read / sizeof(int32_t);
+    int samples_read = 0;
 
-    // 24-bit -> 16-bit: take upper 16 bits of the 24-bit value (>> 8 from 32-bit).
-    // This preserves full scale (no attenuation) since 24-bit LSB is bit 8.
-    for (int i = 0; i < samples_read; i++) {
-        int32_t v = raw[i] >> 8;
-        if (v > 32767) v = 32767;
-        else if (v < -32768) v = -32768;
-        dest[i] = (int16_t)v;
+    // Extract left channel (every 2 words) + convert 24-bit → 16-bit.
+    // INMP441 outputs 24-bit left-justified in 32-bit slot. Take top 16 bits
+    // (>>16) to scale ±8M range down to ±32K range. No clamping needed.
+    for (int i = 0; i < words_read; i += 2) {
+        dest[samples_read++] = (int16_t)(raw[i] >> 16);
     }
 
     // Apply input gain if non-unity.

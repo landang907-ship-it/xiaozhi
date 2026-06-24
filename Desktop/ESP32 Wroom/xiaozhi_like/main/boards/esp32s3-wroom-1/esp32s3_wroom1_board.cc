@@ -45,21 +45,21 @@ void Esp32S3Wroom1Board::InitSpeakerI2S() {
     chan_cfg.auto_clear = true;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &speaker_handle_, nullptr));
 
+    // Use Philips slot default config — same as test_speaker.cc which produces sound.
+    // This sets bit_shift=true (I2S Philips standard), ws_pol, ws_width, etc.
     i2s_std_config_t std_cfg = {};
-    std_cfg.clk_cfg.sample_rate_hz = AUDIO_OUTPUT_SAMPLE_RATE;
-    std_cfg.clk_cfg.clk_src = I2S_CLK_SRC_DEFAULT;
-    std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
-    std_cfg.slot_cfg.data_bit_width = I2S_DATA_BIT_WIDTH_16BIT;
-    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO;
-    std_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_MONO;
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_OUTPUT_SAMPLE_RATE);
+    std_cfg.clk_cfg.sample_rate_hz = AUDIO_OUTPUT_SAMPLE_RATE;  // must set explicitly
+    std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+        I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
     std_cfg.gpio_cfg.bclk = AUDIO_I2S_SPK_GPIO_BCLK;
-    std_cfg.gpio_cfg.ws = AUDIO_I2S_SPK_GPIO_WS;
+    std_cfg.gpio_cfg.ws   = AUDIO_I2S_SPK_GPIO_WS;
     std_cfg.gpio_cfg.dout = AUDIO_I2S_SPK_GPIO_DOUT;
-    std_cfg.gpio_cfg.din = I2S_GPIO_UNUSED;
+    std_cfg.gpio_cfg.din  = I2S_GPIO_UNUSED;
+    std_cfg.gpio_cfg.mclk = I2S_GPIO_UNUSED;
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(speaker_handle_, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(speaker_handle_));
-    ESP_LOGI(TAG, "I2S0 spk ready (BCLK=%d, WS=%d, DOUT=%d, %d Hz mono)",
+    ESP_LOGI(TAG, "I2S0 spk ready (BCLK=%d, WS=%d, DOUT=%d, %d Hz mono Philips)",
         (int)AUDIO_I2S_SPK_GPIO_BCLK, (int)AUDIO_I2S_SPK_GPIO_WS,
         (int)AUDIO_I2S_SPK_GPIO_DOUT, (int)AUDIO_OUTPUT_SAMPLE_RATE);
 }
@@ -73,22 +73,23 @@ void Esp32S3Wroom1Board::InitMicI2S() {
     chan_cfg.auto_clear = true;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, nullptr, &mic_handle_));
 
+    // Use Philips slot default config + override for 24-bit INMP441.
+    // Key fixes vs old code:
+    //   1. mclk_multiple=384 (not 256) — 24-bit data MUST have mclk multiple of 3
+    //   2. Philips slot default sets bit_shift=true (I2S Philips standard)
     i2s_std_config_t std_cfg = {};
-    std_cfg.clk_cfg.sample_rate_hz = AUDIO_INPUT_SAMPLE_RATE;
-    std_cfg.clk_cfg.clk_src = I2S_CLK_SRC_DEFAULT;
-    std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
-    // INMP441 outputs 24-bit data left-justified in 32-bit slot
-    std_cfg.slot_cfg.data_bit_width = I2S_DATA_BIT_WIDTH_32BIT;
-    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO;
-    std_cfg.slot_cfg.slot_mode = I2S_SLOT_MODE_MONO;
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_INPUT_SAMPLE_RATE);
+    std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;  // 24-bit requires multiple of 3
+    std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+        I2S_DATA_BIT_WIDTH_24BIT, I2S_SLOT_MODE_MONO);
     std_cfg.gpio_cfg.bclk = AUDIO_I2S_MIC_GPIO_SCK;
-    std_cfg.gpio_cfg.ws = AUDIO_I2S_MIC_GPIO_WS;
+    std_cfg.gpio_cfg.ws   = AUDIO_I2S_MIC_GPIO_WS;
     std_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
-    std_cfg.gpio_cfg.din = AUDIO_I2S_MIC_GPIO_DIN;
+    std_cfg.gpio_cfg.din  = AUDIO_I2S_MIC_GPIO_DIN;
+    std_cfg.gpio_cfg.mclk = I2S_GPIO_UNUSED;
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(mic_handle_, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(mic_handle_));
-    ESP_LOGI(TAG, "I2S1 mic ready (SCK=%d, WS=%d, DIN=%d, %d Hz mono 32-bit)",
+    ESP_LOGI(TAG, "I2S1 mic ready (SCK=%d, WS=%d, DIN=%d, %d Hz mono 24-bit Philips)",
         (int)AUDIO_I2S_MIC_GPIO_SCK, (int)AUDIO_I2S_MIC_GPIO_WS,
         (int)AUDIO_I2S_MIC_GPIO_DIN, (int)AUDIO_INPUT_SAMPLE_RATE);
 }

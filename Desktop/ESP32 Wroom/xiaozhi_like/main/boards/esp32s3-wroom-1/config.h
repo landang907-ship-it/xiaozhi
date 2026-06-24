@@ -36,9 +36,7 @@
 #define RESET_SSID_LONG_PRESS_MS   5000
 
 // ============================================================
-// OLED - SSD1306 128x64 on GPIO8/9 (rotated 180 deg)
-// GPIO8/9 là GPIO thường trên S3, không xung đột với USB CDC
-// (USB D-/D+ là GPIO19/20).
+// OLED - SSD1306 128x64 on GPIO1/2 (safe, not strapping)
 // ============================================================
 #define DISPLAY_SDA_PIN            GPIO_NUM_8
 #define DISPLAY_SCL_PIN            GPIO_NUM_9

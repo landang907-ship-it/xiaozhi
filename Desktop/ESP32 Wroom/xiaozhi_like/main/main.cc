@@ -14,8 +14,11 @@
 
 #include <esp_log.h>
 #include <esp_err.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_rom_uart.h>
+#include <cmath>
 #include "esp32s3_wroom1_board.h"
 #include "esp32s3_audio_codec.h"
 #include "ssd1306.h"
@@ -26,7 +29,7 @@ static const char* TAG = "Main";
 // that i2s_channel_read/write don't busy-spin on every call.
 static constexpr int kLoopChunkSamples = 240;
 static constexpr int kLoopTaskStack    = 4096;
-static constexpr int kLoopTaskPrio     = 5;
+static constexpr int kLoopTaskPrio    = 5;
 static constexpr int kLoopTaskCore     = 1;  // APP CPU (Core 1)
 
 static void LoopbackTask(void* arg) {
@@ -36,12 +39,34 @@ static void LoopbackTask(void* arg) {
              xPortGetCoreID(), kLoopChunkSamples,
              (float)kLoopChunkSamples * 1000.0f / 24000.0f);
 
+    int64_t last_stats_us = 0;
+    int64_t total_read = 0;
+    int64_t total_write = 0;
+
     while (true) {
         int n = codec->ReadSamples(buf, kLoopChunkSamples);
         if (n > 0) {
+            total_read += n;
             int w = codec->WriteSamples(buf, n);
+            total_write += w;
             if (w != n) {
                 ESP_LOGW(TAG, "[loop] underrun: read=%d write=%d", n, w);
+            }
+
+            // Log peak/RMS every ~1 second to diagnose mic input level.
+            int64_t now_us = esp_timer_get_time();
+            if (now_us - last_stats_us > 1'000'000) {
+                int32_t peak = 0;
+                int64_t sum_sq = 0;
+                for (int i = 0; i < n; i++) {
+                    int32_t absv = std::abs((int32_t)buf[i]);
+                    if (absv > peak) peak = absv;
+                    sum_sq += (int64_t)buf[i] * buf[i];
+                }
+                float rms = sqrtf((float)sum_sq / n);
+                ESP_LOGI(TAG, "[loop stats] read=%lld write=%lld peak=%" PRId32 " rms=%.1f",
+                         total_read, total_write, peak, rms);
+                last_stats_us = now_us;
             }
         } else {
             // No input available; yield briefly so we don't busy-loop.
@@ -51,6 +76,9 @@ static void LoopbackTask(void* arg) {
 }
 
 extern "C" void app_main(void) {
+    // esp_rom_printf bypasses esp_log buffer — always goes to UART immediately.
+    esp_rom_printf("[BOOT] app_main running, version P3-verify\r\n");
+    fflush(stdout);
     ESP_LOGI(TAG, "=== Mini-Xiaozhi boot (P3 verify) ===");
 
     // 1) Board HAL: I2C0 + I2S0 (spk) + I2S1 (mic)
@@ -58,7 +86,7 @@ extern "C" void app_main(void) {
     board.Initialize();
 
     // 2) SSD1306 OLED on top of I2C bus from board.
-    Ssd1306 oled(board.GetI2CBus(), board.OLED_I2C_ADDR, 128, 64);
+    Ssd1306 oled(board.GetI2CBus());
     oled.Init();
     oled.Clear();
     oled.DrawRect(0, 0, 128, 64, 1);     // outer border
