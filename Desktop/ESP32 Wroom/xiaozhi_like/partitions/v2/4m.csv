@@ -1,10 +1,18 @@
-# ESP32-S3 4MB Flash Partition Table
+# ESP32-S3 4MB Flash Partition Table - WITH OTA SUPPORT
 # Source: standard xiaozhi-esp32 partition for 4MB flash
-# Offset 0x9000 (after NVS at 0x9000)
+#
+# OTA Strategy:
+#   - factory: 1MB (0x100000) - primary app partition
+#   - ota_0:   1MB (0x100000) - OTA update target
+#   - otadata: 8KB - boot selection data
+#   - nvs:     36KB - WiFi credentials, etc.
+#   - phy_init: 4KB - RF calibration
+#   - storage: ~1.8MB - FAT filesystem for audio data
 
-# Name,   Type, SubType,   Offset,   Size,    Flags
-nvs,      data, nvs,       0x9000,   0x6000,
-otadata,  data, ota,       0xf000,   0x2000,
-phy_init, data, phy,       0x11000,  0x1000,
-factory,  app,  factory,   0x20000,  0x180000,
-storage,  data, fat,       0x1a0000, 0x60000,
+# Name,     Type, SubType,   Offset,     Size,
+nvs,        data, nvs,       0x9000,     0x6000,
+otadata,    data, ota,       0xf000,     0x2000,
+phy_init,   data, phy,       0x11000,    0x1000,
+factory,    app,  factory,   0x20000,    0x100000,
+ota_0,      app,  ota_0,     0x120000,   0x100000,
+storage,    data, fat,       0x220000,   0x1E0000
