@@ -51,7 +51,7 @@ void Esp32S3Wroom1Board::InitSpeakerI2S() {
     std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_OUTPUT_SAMPLE_RATE);
     std_cfg.clk_cfg.sample_rate_hz = AUDIO_OUTPUT_SAMPLE_RATE;  // must set explicitly
     std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
-        I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+        I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
     std_cfg.gpio_cfg.bclk = AUDIO_I2S_SPK_GPIO_BCLK;
     std_cfg.gpio_cfg.ws   = AUDIO_I2S_SPK_GPIO_WS;
     std_cfg.gpio_cfg.dout = AUDIO_I2S_SPK_GPIO_DOUT;

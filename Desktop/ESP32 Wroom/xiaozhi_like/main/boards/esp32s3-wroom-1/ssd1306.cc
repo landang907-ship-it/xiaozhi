@@ -52,6 +52,7 @@ static const uint8_t INIT_SEQUENCE[] = {
     0x8D, 0x14, // Charge pump ON
     0xA4,       // Entire display ON -> follows RAM
     0xA6,       // Normal display (not inverse)
+    0x20, 0x00, // Set addressing mode: HORIZONTAL (required for 0x21/0x22 in Update)
     0xAF,       // Display ON
 };
 
@@ -269,7 +270,10 @@ void Ssd1306::Init() {
     uint8_t cmd[2] = {SSD1306_CMD_PREFIX, 0};
     for (size_t i = 0; i < sizeof(INIT_SEQUENCE); i++) {
         cmd[1] = INIT_SEQUENCE[i];
-        i2c_master_transmit(dev_, cmd, 2, -1);
+        esp_err_t err = i2c_master_transmit(dev_, cmd, 2, -1);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "SSD1306 init cmd 0x%02X failed: %s", INIT_SEQUENCE[i], esp_err_to_name(err));
+        }
     }
     ESP_LOGI(TAG, "SSD1306 init done");
 }

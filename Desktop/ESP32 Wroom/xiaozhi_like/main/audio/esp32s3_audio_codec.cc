@@ -56,8 +56,10 @@ int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
     if (!input_enabled_ || rx_handle_ == nullptr) return 0;
 
     // INMP441 outputs 24-bit data in 32-bit slot (Philips format, left-justified).
-    // We read as 32-bit and extract left channel only (step by 2 since it's stereo slot).
-    std::vector<int32_t> raw(samples * 2);
+    // 24-bit PCM occupies the top 3 bytes of the 32-bit word.
+    // We read as 32-bit words and convert: raw >> 8 gives signed 24-bit value
+    // in int16 range (±8M → ±32768). MONO mode = 1 word per sample.
+    std::vector<int32_t> raw(samples);
     size_t bytes_read = 0;
     esp_err_t ret = i2s_channel_read(rx_handle_, raw.data(),
         raw.size() * sizeof(int32_t), &bytes_read, portMAX_DELAY);
@@ -68,11 +70,9 @@ int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
     int words_read = bytes_read / sizeof(int32_t);
     int samples_read = 0;
 
-    // Extract left channel (every 2 words) + convert 24-bit → 16-bit.
-    // INMP441 outputs 24-bit left-justified in 32-bit slot. Take top 16 bits
-    // (>>16) to scale ±8M range down to ±32K range. No clamping needed.
-    for (int i = 0; i < words_read; i += 2) {
-        dest[samples_read++] = (int16_t)(raw[i] >> 16);
+    // Convert 24-bit PCM → 16-bit PCM: raw >> 8 (top 24 bits → signed int16).
+    for (int i = 0; i < words_read; i++) {
+        dest[samples_read++] = (int16_t)(raw[i] >> 8);
     }
 
     // Apply input gain if non-unity.
@@ -91,7 +91,9 @@ int Esp32S3AudioCodec::Write(const int16_t* data, int samples) {
     if (!output_enabled_ || tx_handle_ == nullptr) return 0;
 
     // Apply output volume (0-100).
-    std::vector<int16_t> buf(samples);
+    // MAX98357A expects STEREO I2S frames. We convert mono input to stereo
+    // by duplicating each sample into both L and R channels (interleaved).
+    std::vector<int16_t> buf(samples * 2);
     int vol = output_volume_;
     if (vol < 0) vol = 0;
     if (vol > 100) vol = 100;
@@ -99,15 +101,18 @@ int Esp32S3AudioCodec::Write(const int16_t* data, int samples) {
         int32_t v = ((int32_t)data[i] * vol) / 100;
         if (v > 32767) v = 32767;
         else if (v < -32768) v = -32768;
-        buf[i] = (int16_t)v;
+        int16_t s = (int16_t)v;
+        buf[i * 2 + 0] = s;  // Left channel
+        buf[i * 2 + 1] = s;  // Right channel (duplicate)
     }
 
     size_t bytes_written = 0;
     esp_err_t ret = i2s_channel_write(tx_handle_, buf.data(),
-        samples * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+        samples * 2 * sizeof(int16_t), &bytes_written, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "i2s write failed: %s", esp_err_to_name(ret));
         return 0;
     }
-    return bytes_written / sizeof(int16_t);
+    // Return mono sample count (Write receives mono samples, duplicates to stereo internally)
+    return samples;
 }

@@ -36,7 +36,7 @@
 #define RESET_SSID_LONG_PRESS_MS   5000
 
 // ============================================================
-// OLED - SSD1306 128x64 on GPIO1/2 (safe, not strapping)
+// OLED - SSD1306 128x64 on GPIO8/9 (matches test_oled / test_mic_oled)
 // ============================================================
 #define DISPLAY_SDA_PIN            GPIO_NUM_8
 #define DISPLAY_SCL_PIN            GPIO_NUM_9
