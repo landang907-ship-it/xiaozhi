@@ -234,6 +234,7 @@ static void ConsoleTask(void* arg) {
         else if (strcmp(line, "wake") == 0) {
             ESP_LOGI(TAG, "Manual wake triggered");
             s_va_state = VA_STATE_READY;
+            on_wake_detected("manual_wake", 1.0f);
         }
         else if (strncmp(line, "volume ", 7) == 0) {
             int vol = atoi(line + 7);
