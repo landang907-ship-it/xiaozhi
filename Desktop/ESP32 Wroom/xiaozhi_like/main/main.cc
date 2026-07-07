@@ -169,6 +169,8 @@ static void save_ws_url(const char* url) {
     }
 }
 
+static void on_wake_detected(const char* wake_word, float confidence);
+
 // ===== Console Task =====
 static void ConsoleTask(void* arg) {
     char line[128];
