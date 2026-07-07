@@ -5,6 +5,7 @@
 #include <esp_timer.h>
 #include <esp_rom_uart.h>
 #include <nvs_flash.h>
+#include <nvs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <cmath>
@@ -147,16 +148,44 @@ static void WifiAutoConnectTask(void* arg) {
     }
 }
 
+static void load_ws_url(void) {
+    nvs_handle_t nvs;
+    if (nvs_open("ws_config", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_ws_url);
+        if (nvs_get_str(nvs, "ws_url", s_ws_url, &len) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded stored WS URL: %s", s_ws_url);
+        }
+        nvs_close(nvs);
+    }
+}
+
+static void save_ws_url(const char* url) {
+    nvs_handle_t nvs;
+    if (nvs_open("ws_config", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_str(nvs, "ws_url", url);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+        ESP_LOGI(TAG, "Stored WS URL in NVS: %s", url);
+    }
+}
+
 // ===== Console Task =====
 static void ConsoleTask(void* arg) {
     char line[128];
     ESP_LOGI(TAG, "=== Commands: wifi add <ssid> <pass>, ws <url>, status, volume <n>, wake, reset ===");
     
+    printf("\n> ");
+    fflush(stdout);
+
     while (true) {
-        printf("\n> ");
-        fflush(stdout);
-        if (fgets(line, sizeof(line), stdin) == NULL) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        if (fgets(line, sizeof(line), stdin) == NULL) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
         line[strcspn(line, "\r\n")] = 0;
+        
+        if (line[0] == '\0') {
+            printf("\n> ");
+            fflush(stdout);
+            continue;
+        }
         
         // WiFi add command - add network to known list (for current session)
         if (strncmp(line, "wifi add ", 9) == 0) {
@@ -177,7 +206,7 @@ static void ConsoleTask(void* arg) {
         }
         else if (strcmp(line, "wifi status") == 0) {
             ESP_LOGI(TAG, "WiFi: state=%d, IP=%s", 
-                     wifi_get_state(), wifi_get_ip_str());
+             wifi_get_state(), wifi_get_ip_str());
             if (wifi_is_connected()) {
                 ESP_LOGI(TAG, "WiFi RSSI: %d dBm", wifi_get_rssi());
             }
@@ -185,6 +214,7 @@ static void ConsoleTask(void* arg) {
         else if (strncmp(line, "ws ", 3) == 0) {
             strncpy(s_ws_url, line + 3, sizeof(s_ws_url) - 1);
             ESP_LOGI(TAG, "WS URL set: %s", s_ws_url);
+            save_ws_url(s_ws_url);
             if (wifi_is_connected()) {
                 ws_connect(s_ws_url);
             } else {
@@ -230,6 +260,8 @@ static void ConsoleTask(void* arg) {
             ESP_LOGI(TAG, "  wake                  - Manual wake");
             ESP_LOGI(TAG, "  reset                 - Reset state");
         }
+        printf("\n> ");
+        fflush(stdout);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -447,6 +479,9 @@ extern "C" void app_main(void) {
         nvs_flash_erase(); 
         nvs_flash_init(); 
     }
+    
+    // Load stored WebSocket URL from NVS
+    load_ws_url();
     
     ESP_LOGI(TAG, "=== P8 Voice Assistant ===");
     
