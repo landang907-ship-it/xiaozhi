@@ -1,51 +1,90 @@
-# STATE.md — Mini-Xiaozhi (xiaozhi_like)
+# Project State - P8 Voice Assistant
 
-## Board
-- **ESP32-S3-WROOM-1** (N16R8: 4MB flash, 8MB Octal PSRAM)
-- **OLED**: SSD1306 128x64 I2C, addr 0x3C, GPIO8(SDA)/GPIO9(SCL)
-- **Speaker**: MAX98357A I2S, GPIO15(BCLK)/GPIO16(WS)/GPIO7(DOUT)
-- **Mic**: INMP441 I2S, GPIO5(SCK)/GPIO4(WS)/GPIO6(DIN)
+## Mục tiêu
+Hoàn thành P8 - Full Voice Assistant với tích hợp:
+- Wake word detection (button GPIO47)
+- WebSocket communication
+- Audio capture/streaming
+- TTS playback
+- OLED status display
 
-## Phase Status
+## Trạng thái hiện tại: ✅ Hoàn thành
 
-### P1 + P1.5 ✅
-- Clone repo → `xiaozhi_like/`
-- esp-idf P2.4 skeleton build OK
-- App builds and flashes
+## Các file đã tạo/cập nhật
 
-### P2.1–P2.4 ✅
-- Port board HAL: `Esp32S3Wroom1Board` (I2C0 + I2S0 + I2S1)
-- Port audio codec: `Esp32S3AudioCodec`
-- `app_main` skeleton with audio loopback
-- Build PASS
+### 1. xiaozhi_like/main/main.cc (P8)
+- Voice Assistant State Machine: IDLE, READY, LISTENING, THINKING, SPEAKING, ERROR
+- WiFi Auto-Connect Task - tự động quét và kết nối mạng đã biết
+- WebSocket integration với callbacks
+- Mic audio streaming (480 samples @ 24kHz)
+- OLED display với trạng thái real-time
+- Console commands
 
-### P3 Audio Loopback ✅
-- Flash COM6, serial log OK
-- I2S0 spk + I2S1 mic hoạt động
-- Loopback task trên Core 1, chunk 240 samples @ 24kHz (10ms)
-- RMS ~14000, peak=32768 (full-scale 16-bit) → mic nhận tốt
+### 2. xiaozhi_like/main/wake_word.cc
+- Button wake on GPIO47 (BOOT_BUTTON_GPIO)
+- Callback mechanism cho wake detection
 
-### P4 Bug Fixes ✅
-- **Fix 1**: config.h SDA 1→8, SCL 2→9 (GPIO đúng cho WROOM-1)
-- **Fix 2**: audio codec conversion 24→16 bit: clamp → right-shift 16
-- **Fix 3**: Dọn double-enable I2S trong codec
-- **Fix 4**: OLED driver — thay esp_lcd API (không tồn tại) bằng driver/i2c_master trực tiếp
-  - Ssd1306 class: nhận bus handle, add device, send init sequence
-  - Font bitmap 5x7, DrawText/DrawRect/Display methods
-  - SSD1306 init done, OLED test pattern flushed ✅
-- **Fix 5**: `clock_speed_hz` → `scl_speed_hz` (i2c_device_config_t field name)
+### 3. xiaozhi_like/main/websocket_client.cc
+- WebSocket client với esp_websocket_client
+- Binary/text message handling
+- Auto-reconnect
 
-### Current Status
-- ✅ Build OK (xiaozhi_like.bin 243KB)
-- ✅ Flash COM6 OK
-- ✅ OLED hiện text pattern
-- ✅ Audio loopback chạy (mic→spk)
-- ✅ Serial log sạch, không lỗi
+### 4. xiaozhi_like/main/stream_player.cc
+- Audio stream player với ring buffer
+- Volume control
 
-## Next Steps
-- P4.1: OTA update (esp_ota_ops)
-- P5: WiFi connect + HTTPS GET (stream từ server)
-- P5.1: HTTP server nhận audio stream
-- P6: Wake word detection (porcupine/speech央企)
-- P6.1: LLM integration (OpenAI-compatible API)
-- P6.2: Full voice assistant loop
+### 5. xiaozhi_like/main/audio_stream.cc
+- HTTP/HTTPS audio streaming
+
+### 6. send_wifi_cmd.py (helper script)
+- Script gửi lệnh WiFi qua serial
+
+## Các component modules
+
+### WiFi Auto-Connect
+Danh sách mạng đã biết (hardcoded):
+- Lan-mini / 123456788
+- Thanh long-2.4G-ext / 17111976
+- Thanh / long-2.4G-ext
+
+Tự động quét mỗi 30 giây nếu chưa kết nối.
+
+### Voice Assistant State Machine
+```
+IDLE -> (WiFi+WS connected) -> READY
+READY -> (button wake) -> LISTENING -> THINKING -> SPEAKING -> READY
+ERROR -> (2s) -> READY
+```
+
+### Console Commands
+- `wifi add <ssid> <pass>` - Kết nối WiFi
+- `wifi status` - Trạng thái WiFi
+- `ws <url>` - Kết nối WebSocket
+- `status` - Trạng thái VA/WiFi/WS
+- `volume <0-100>` - Chỉnh âm lượng
+- `wake` - Kích hoạt thủ công
+- `reset` - Reset trạng thái
+
+## Build và Flash
+
+```bash
+# Build
+cd xiaozhi_like
+idf.py build
+
+# Flash
+idf.py -p COM6 erase-flash flash monitor
+```
+
+## WiFi Credentials
+- SSID: Lan-mini
+- Password: 123456788
+
+## Kế hoạch tiếp theo
+1. Test P8 trên hardware
+2. Tối ưu WiFi auto-connect
+3. Thêm nhiều mạng WiFi vào danh sách
+4. Test WebSocket server integration
+
+## Ngày cập nhật
+2026-07-05

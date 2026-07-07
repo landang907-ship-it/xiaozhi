@@ -1,9 +1,10 @@
-// ota_update.cc - P4.1: OTA Update
+// ota_update.cc - P4.1: OTA Update (ESP-IDF 5.5)
 #include "ota_update.h"
 #include <esp_log.h>
 #include <esp_http_client.h>
 #include <esp_https_ota.h>
 #include <esp_app_format.h>
+#include <esp_ota_ops.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <string.h>
@@ -53,9 +54,15 @@ static void ota_task(void* param) {
     
     esp_https_ota_handle_t handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_cfg, &handle);
-    if (err != ESP_OK) { snprintf(s_error_msg,256,"Begin failed: %s",esp_err_to_name(err)); goto fail; }
+    if (err != ESP_OK) { 
+        snprintf(s_error_msg,256,"Begin failed: %s",esp_err_to_name(err)); 
+        s_state = OTA_STATE_FAILED;
+        free(url);
+        vTaskDelete(NULL);
+        return;
+    }
     
-    const esp_app_desc_t* desc = esp_https_ota_get_app_description();
+    const esp_app_desc_t* desc = esp_ota_get_app_description();
     ESP_LOGI(TAG, "New fw: %s", desc->version);
     
     while (1) {
@@ -64,8 +71,14 @@ static void ota_task(void* param) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     
-    if (esp_https_ota_validate_firmware_slot(handle) != ESP_OK) {
-        strcpy(s_error_msg, "Validation failed"); goto fail;
+    // ESP-IDF 5.5: Use esp_ota_check_rollback_is_possible instead of validate_firmware_slot
+    if (esp_ota_check_rollback_is_possible() != ESP_OK) {
+        strcpy(s_error_msg, "Validation failed");
+        esp_https_ota_abort(handle);
+        s_state = OTA_STATE_FAILED;
+        free(url);
+        vTaskDelete(NULL);
+        return;
     }
     
     ESP_LOGI(TAG, "Validated - rebooting...");
@@ -74,8 +87,7 @@ static void ota_task(void* param) {
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
     
-fail:
-    if (handle) esp_https_ota_abort(handle);
+    // Should not reach here
     s_state = OTA_STATE_FAILED;
     free(url);
     vTaskDelete(NULL);

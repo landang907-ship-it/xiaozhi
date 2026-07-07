@@ -1,9 +1,14 @@
-# main/CMakeLists.txt - P4.1
+# main/CMakeLists.txt - P8 Full Voice Assistant
 idf_component_register(
     SRCS 
         "main.cc"
         "wifi_manager.cc"
         "ota_update.cc"
+        "wifi_scan.cc"
+        "wake_word.cc"
+        "websocket_client.cc"
+        "stream_player.cc"
+        "audio_stream.cc"
         "boards/esp32s3-wroom-1/esp32s3_wroom1_board.cc"
         "boards/esp32s3-wroom-1/ssd1306.cc"
         "audio/audio_codec.cc"
@@ -23,4 +28,6 @@ idf_component_register(
         "esp_netif"
         "esp_https_ota"
         "esp_http_client"
+        "esp_websocket_client"
+        "app_update"
 )

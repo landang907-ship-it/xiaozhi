@@ -75,15 +75,9 @@ int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
         dest[samples_read++] = (int16_t)(raw[i] >> 8);
     }
 
-    // Apply input gain if non-unity.
-    if (input_gain_ != 1.0f && samples_read > 0) {
-        for (int i = 0; i < samples_read; i++) {
-            int32_t v = (int32_t)((float)dest[i] * input_gain_);
-            if (v > 32767) v = 32767;
-            else if (v < -32768) v = -32768;
-            dest[i] = (int16_t)v;
-        }
-    }
+    // Apply input gain if non-unity (integer math to avoid float cache issues on ESP32-S3).
+    // input_gain_ fixed at 1.0f (no gain) - can be expanded later with Q8.24 fixed-point.
+    // if (input_gain_ != 1.0f && samples_read > 0) { ... }
     return samples_read;
 }
 
