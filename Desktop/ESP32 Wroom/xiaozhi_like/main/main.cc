@@ -361,7 +361,7 @@ static int playback_write(void* codec, int16_t* samples, int count) {
 static void on_wake_detected(const char* wake_word, float confidence) {
     ESP_LOGI(TAG, "Wake detected: %s (%.2f)", wake_word, confidence);
     
-    if (s_va_state == VA_STATE_READY && ws_is_connected()) {
+    if ((s_va_state == VA_STATE_READY || s_va_state == VA_STATE_IDLE) && ws_is_connected()) {
         s_va_state = VA_STATE_LISTENING;
         s_streaming_audio = true;
         s_speech_start_time = esp_timer_get_time() / 1000;
@@ -417,12 +417,22 @@ static void on_ws_text(const char* text) {
         s_streaming_audio = false;
         s_va_state = VA_STATE_THINKING;
     }
-    else if (strstr(text, "error") || strstr(text, "Error")) {
-        ESP_LOGW(TAG, "Server error: %s", text);
+    else if (strstr(text, "\"action\":\"error\"")) {
+        ESP_LOGW(TAG, "Server error action: %s", text);
         s_va_state = VA_STATE_ERROR;
         player_stop();
         vTaskDelay(pdMS_TO_TICKS(2000));
         s_va_state = VA_STATE_READY;
+    }
+    else if (strstr(text, "\"type\":\"asr_result\"") || strstr(text, "\"type\":\"llm_response\"")) {
+        // Server sent ASR/LLM result - transition to THINKING then READY
+        ESP_LOGI(TAG, "Server result: %s", text);
+        if (s_va_state == VA_STATE_LISTENING) {
+            s_streaming_audio = false;
+            s_va_state = VA_STATE_THINKING;
+        } else if (s_va_state == VA_STATE_THINKING) {
+            s_va_state = VA_STATE_READY;
+        }
     }
     else if (strncmp(text, "http://", 7) == 0 || strncmp(text, "https://", 8) == 0) {
         // Direct audio URL - play it
