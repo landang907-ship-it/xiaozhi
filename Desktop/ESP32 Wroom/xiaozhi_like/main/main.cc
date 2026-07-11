@@ -64,7 +64,7 @@ static struct {
     const char* password;
 } s_known_networks[NUM_KNOWN_NETWORKS] = {
     {"Lan-mini", "123456788"},
-    {"Thanh long-2.4G-ext", "17111976"},
+    {"Thanh  long-2.4G-ext", "17111976"},
     {"Thanh", "long-2.4G-ext"},
     {"", ""}  // Empty - end marker
 };
@@ -189,12 +189,44 @@ static void ConsoleTask(void* arg) {
             continue;
         }
         
-        // WiFi add command - add network to known list (for current session)
-        if (strncmp(line, "wifi add ", 9) == 0) {
-            char ssid[33] = {0}, pass[65] = {0};
-            if (sscanf(line + 9, "%32s %64s", ssid, pass) == 2) {
+        // WiFi add/connect command - add network to known list (for current session)
+        if (strncmp(line, "wifi add ", 9) == 0 || strncmp(line, "wifi connect ", 13) == 0) {
+            char ssid[65] = {0}, pass[65] = {0};
+            const char* params = (strncmp(line, "wifi add ", 9) == 0) ? (line + 9) : (line + 13);
+            
+            // Parse with or without quotes to support spaces in SSID
+            bool parsed = false;
+            if (params[0] == '"') {
+                // Format: "SSID with spaces" password
+                const char* end_quote = strchr(params + 1, '"');
+                if (end_quote) {
+                    int ssid_len = end_quote - (params + 1);
+                    if (ssid_len < sizeof(ssid)) {
+                        strncpy(ssid, params + 1, ssid_len);
+                        // Skip quote and space to get password
+                        const char* pass_ptr = end_quote + 1;
+                        while (*pass_ptr == ' ') pass_ptr++;
+                        if (*pass_ptr) {
+                            strncpy(pass, pass_ptr, sizeof(pass) - 1);
+                            // Remove trailing quotes from password if any
+                            if (pass[0] == '"' && pass[strlen(pass)-1] == '"') {
+                                pass[strlen(pass)-1] = '\0';
+                                memmove(pass, pass + 1, strlen(pass));
+                            }
+                            parsed = true;
+                        }
+                    }
+                }
+            } else {
+                // Format: SSID password (no spaces in SSID)
+                if (sscanf(params, "%64s %64s", ssid, pass) == 2) {
+                    parsed = true;
+                }
+            }
+            
+            if (parsed) {
                 // Connect immediately
-                ESP_LOGI(TAG, "WiFi connecting to: %s", ssid);
+                ESP_LOGI(TAG, "WiFi connecting to: '%s' with pass: '%s'", ssid, pass);
                 wifi_save_credentials(ssid, pass);
                 wifi_connect(ssid, pass);
                 if (wifi_wait_connected(30000) == ESP_OK) {
@@ -203,7 +235,7 @@ static void ConsoleTask(void* arg) {
                     ESP_LOGE(TAG, "WiFi connection failed!");
                 }
             } else {
-                ESP_LOGI(TAG, "Usage: wifi add <ssid> <password>");
+                ESP_LOGI(TAG, "Usage: wifi connect \"<ssid>\" <password> OR wifi connect <ssid> <password>");
             }
         }
         else if (strcmp(line, "wifi status") == 0) {
@@ -284,6 +316,33 @@ static void PlayBeep(Esp32S3AudioCodec* c, int freq, int dur, int amp) {
     c->WriteSamples(buf.data(), n);
 }
 
+static char s_asr_text[128] = "";
+
+static void extract_json_value(const char* json, const char* key, char* dest, size_t dest_len) {
+    dest[0] = '\0';
+    const char* key_pos = strstr(json, key);
+    if (!key_pos) return;
+    
+    // Find the colon after key
+    const char* colon_pos = strchr(key_pos, ':');
+    if (!colon_pos) return;
+    
+    // Find the opening quote of the value
+    const char* val_start = strchr(colon_pos, '"');
+    if (!val_start) return;
+    val_start++; // Skip the quote
+    
+    // Find the closing quote
+    const char* val_end = strchr(val_start, '"');
+    if (!val_end) return;
+    
+    size_t len = val_end - val_start;
+    if (len >= dest_len) len = dest_len - 1;
+    
+    memcpy(dest, val_start, len);
+    dest[len] = '\0';
+}
+
 // ===== OLED Display Task =====
 static void DisplayTask(void* arg) {
     char line[32];
@@ -301,19 +360,38 @@ static void DisplayTask(void* arg) {
         snprintf(line, sizeof(line), "State: %s", va_state_str(s_va_state));
         s_oled->DrawText(2, 14, line, 1);
         
-        // WiFi status
-        if (wifi_is_connected()) {
-            s_oled->DrawText(2, 26, "WiFi: ON", 1);
-            s_oled->DrawText(2, 36, wifi_get_ip_str(), 1);
+        // If ASR text is available, display it; otherwise, display status info
+        if (s_asr_text[0] != '\0') {
+            s_oled->DrawText(2, 26, "You said:", 1);
+            
+            char line1[22] = "";
+            char line2[22] = "";
+            size_t text_len = strlen(s_asr_text);
+            if (text_len <= 20) {
+                snprintf(line1, sizeof(line1), "%s", s_asr_text);
+            } else {
+                snprintf(line1, sizeof(line1), "%.20s", s_asr_text);
+                snprintf(line2, sizeof(line2), "%.20s", s_asr_text + 20);
+            }
+            s_oled->DrawText(2, 36, line1, 1);
+            if (line2[0]) {
+                s_oled->DrawText(2, 46, line2, 1);
+            }
         } else {
-            s_oled->DrawText(2, 26, "WiFi: SCANNING...", 1);
-        }
-        
-        // WS status - use stored display state
-        if (s_ws_display_connected) {
-            s_oled->DrawText(2, 46, "WS: CONNECTED", 1);
-        } else {
-            s_oled->DrawText(2, 46, "WS: DISCONNECT", 1);
+            // WiFi status
+            if (wifi_is_connected()) {
+                s_oled->DrawText(2, 26, "WiFi: ON", 1);
+                s_oled->DrawText(2, 36, wifi_get_ip_str(), 1);
+            } else {
+                s_oled->DrawText(2, 26, "WiFi: SCANNING...", 1);
+            }
+            
+            // WS status
+            if (s_ws_display_connected) {
+                s_oled->DrawText(2, 46, "WS: CONNECTED", 1);
+            } else {
+                s_oled->DrawText(2, 46, "WS: DISCONNECT", 1);
+            }
         }
         
         // Animation dots for LISTENING/THINKING
@@ -336,15 +414,34 @@ static void MicCaptureTask(void* arg) {
     constexpr int CHUNK_SIZE = 480;  // ~20ms @ 24kHz
     int16_t samples[CHUNK_SIZE];
     
+    int64_t start_time = esp_timer_get_time() / 1000;
+    
     while (s_streaming_audio) {
+        // Push-to-talk: stop capturing if button is released after 300ms debounce window
+        if (esp_timer_get_time() / 1000 - start_time > 300) {
+            if (gpio_get_level((gpio_num_t)BOOT_BUTTON_GPIO) == 0) {
+                ESP_LOGI(TAG, "Button released, stopping capture");
+                s_streaming_audio = false;
+                s_va_state = VA_STATE_THINKING;
+                PlayBeep(s_codec, 1200, 80, 6000);
+                ws_send_text("{\"state\":\"stop_capture\"}");
+                break;
+            }
+        }
+        
         int n = s_codec->ReadSamples(samples, CHUNK_SIZE);
         if (n > 0 && ws_is_connected()) {
-            ws_send_audio(samples, n);
+            if (ws_send_audio(samples, n) != ESP_OK) {
+                ESP_LOGE(TAG, "Audio send failed, stopping mic capture");
+                s_streaming_audio = false;
+                break;
+            }
         } else {
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
     
+    s_codec->EnableInput(false);
     ESP_LOGI(TAG, "Mic capture task stopped");
     s_mic_task = NULL;
     vTaskDelete(NULL);
@@ -361,7 +458,21 @@ static int playback_write(void* codec, int16_t* samples, int count) {
 static void on_wake_detected(const char* wake_word, float confidence) {
     ESP_LOGI(TAG, "Wake detected: %s (%.2f)", wake_word, confidence);
     
-    if ((s_va_state == VA_STATE_READY || s_va_state == VA_STATE_IDLE) && ws_is_connected()) {
+    if (ws_is_connected()) {
+        // If already recording, do nothing
+        if (s_mic_task != NULL) {
+            ESP_LOGI(TAG, "Mic task already running, ignoring wake");
+            return;
+        }
+        
+        // If speaking, interrupt and stop playback
+        if (s_speaking || s_va_state == VA_STATE_SPEAKING) {
+            ESP_LOGI(TAG, "Interrupting playback for new wake");
+            s_speaking = false;
+            player_stop();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        
         s_va_state = VA_STATE_LISTENING;
         s_streaming_audio = true;
         s_speech_start_time = esp_timer_get_time() / 1000;
@@ -370,11 +481,15 @@ static void on_wake_detected(const char* wake_word, float confidence) {
         PlayBeep(s_codec, 1000, 100, 6000);
         
         // Start mic capture
+        s_codec->EnableInput(true);
         if (xTaskCreatePinnedToCore(MicCaptureTask, "mic", 4096, NULL, 6, &s_mic_task, 1) != pdPASS) {
             ESP_LOGE(TAG, "Failed to start mic task");
+            s_codec->EnableInput(false);
             s_streaming_audio = false;
             s_va_state = VA_STATE_ERROR;
         }
+    } else {
+        ESP_LOGW(TAG, "WS not connected, ignoring wake");
     }
 }
 
@@ -408,7 +523,8 @@ static void on_ws_text(const char* text) {
         PlayBeep(s_codec, 1320, 80, 6000);
     }
     else if (strstr(text, "\"action\":\"listening\"")) {
-        // Server ready for audio
+        // Server ready for audio - clear previous text
+        s_asr_text[0] = '\0';
         s_streaming_audio = true;
         s_va_state = VA_STATE_LISTENING;
     }
@@ -424,13 +540,17 @@ static void on_ws_text(const char* text) {
         vTaskDelay(pdMS_TO_TICKS(2000));
         s_va_state = VA_STATE_READY;
     }
-    else if (strstr(text, "\"type\":\"asr_result\"") || strstr(text, "\"type\":\"llm_response\"")) {
-        // Server sent ASR/LLM result - transition to THINKING then READY
-        ESP_LOGI(TAG, "Server result: %s", text);
+    else if (strstr(text, "\"type\":\"asr_result\"")) {
+        ESP_LOGI(TAG, "ASR result: %s", text);
+        extract_json_value(text, "\"text\"", s_asr_text, sizeof(s_asr_text));
         if (s_va_state == VA_STATE_LISTENING) {
             s_streaming_audio = false;
             s_va_state = VA_STATE_THINKING;
-        } else if (s_va_state == VA_STATE_THINKING) {
+        }
+    }
+    else if (strstr(text, "\"type\":\"llm_response\"")) {
+        ESP_LOGI(TAG, "LLM result: %s", text);
+        if (s_va_state == VA_STATE_THINKING) {
             s_va_state = VA_STATE_READY;
         }
     }
@@ -444,8 +564,8 @@ static void on_ws_text(const char* text) {
 // ===== WebSocket Binary Callback (TTS audio) =====
 static void on_ws_binary(const uint8_t* data, size_t len, ws_msg_type_t type) {
     if (type == WS_TYPE_BINARY && len > 0) {
-        // This is raw audio data - send to player
         ESP_LOGD(TAG, "Binary data: %d bytes", len);
+        player_write_audio(data, len);
     }
 }
 
@@ -480,6 +600,8 @@ static void on_ws_disconnected(void) {
 // ===== WebSocket Error Callback =====
 static void on_ws_error(const char* error) {
     ESP_LOGE(TAG, "WebSocket error: %s", error);
+    s_streaming_audio = false;
+    s_speaking = false;
     s_va_state = VA_STATE_ERROR;
 }
 

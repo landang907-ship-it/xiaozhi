@@ -9,6 +9,7 @@
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_sntp.h>
 
 static const char* TAG = "WiFi";
 static const char* NVS_NS = "wifi_creds";
@@ -59,6 +60,20 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IP: %s", s_ip_str);
         s_retry_count = 0;
         s_state = WIFI_STATE_CONNECTED;
+        
+        // Sync time via SNTP so TLS certificates can be verified
+        ESP_LOGI(TAG, "Initializing SNTP...");
+        esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+        esp_sntp_setservername(0, "pool.ntp.org");
+        esp_sntp_init();
+        
+        int retry = 0;
+        const int retry_count = 15;
+        while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+            ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+            vTaskDelay(2000 / portTICK_PERIOD_MS);
+        }
+        
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         
         // Call the connected callback if registered

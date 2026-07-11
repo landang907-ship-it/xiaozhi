@@ -5,7 +5,7 @@
 #include <esp_log.h>
 
 static const char* TAG = "board";
-static constexpr uint32_t I2C_FREQ_HZ = 400000;
+static constexpr uint32_t I2C_FREQ_HZ = 100000;
 
 Esp32S3Wroom1Board::Esp32S3Wroom1Board() {}
 
@@ -73,15 +73,16 @@ void Esp32S3Wroom1Board::InitMicI2S() {
     chan_cfg.auto_clear = true;
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, nullptr, &mic_handle_));
 
-    // Use Philips slot default config + override for 24-bit INMP441.
-    // Key fixes vs old code:
-    //   1. mclk_multiple=384 (not 256) — 24-bit data MUST have mclk multiple of 3
-    //   2. Philips slot default sets bit_shift=true (I2S Philips standard)
+    // Configure I2S Mic standard mode using parameters from working test project:
+    // - 32-bit data width to capture the 24-bit left-justified samples from INMP441
+    // - Mono mode with Left slot mask to discard Right channel noise
+    // - Default 256x clock multiplier
     i2s_std_config_t std_cfg = {};
     std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_INPUT_SAMPLE_RATE);
-    std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;  // 24-bit requires multiple of 3
+    std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
     std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
-        I2S_DATA_BIT_WIDTH_24BIT, I2S_SLOT_MODE_MONO);
+        I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO);
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
     std_cfg.gpio_cfg.bclk = AUDIO_I2S_MIC_GPIO_SCK;
     std_cfg.gpio_cfg.ws   = AUDIO_I2S_MIC_GPIO_WS;
     std_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;
@@ -89,7 +90,7 @@ void Esp32S3Wroom1Board::InitMicI2S() {
     std_cfg.gpio_cfg.mclk = I2S_GPIO_UNUSED;
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(mic_handle_, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(mic_handle_));
-    ESP_LOGI(TAG, "I2S1 mic ready (SCK=%d, WS=%d, DIN=%d, %d Hz mono 24-bit Philips)",
+    ESP_LOGI(TAG, "I2S1 mic ready (SCK=%d, WS=%d, DIN=%d, %d Hz mono 32-bit Philips)",
         (int)AUDIO_I2S_MIC_GPIO_SCK, (int)AUDIO_I2S_MIC_GPIO_WS,
         (int)AUDIO_I2S_MIC_GPIO_DIN, (int)AUDIO_INPUT_SAMPLE_RATE);
 }

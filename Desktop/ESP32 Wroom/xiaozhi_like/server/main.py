@@ -402,12 +402,19 @@ class AIServer:
                 await websocket.send(u8_chunk)
                 bytes_sent += len(u8_chunk)
                 
-                elapsed = time.time() - start_time
-                bytes_played = elapsed * 24000
-                buffer_level = bytes_sent - bytes_played
-                
-                if buffer_level > 24000:
-                    await asyncio.sleep(0.05)
+                # Pace the stream properly to avoid ESP32 buffer overflow
+                while True:
+                    elapsed = time.time() - start_time
+                    bytes_played = elapsed * 24000
+                    buffer_level = bytes_sent - bytes_played
+                    
+                    if buffer_level < 0:
+                        start_time = time.time() - (bytes_sent / 24000.0)
+                        buffer_level = 0
+                        
+                    if buffer_level <= 16000:
+                        break
+                    await asyncio.sleep(0.02)
                     
         except Exception as e:
             logger.error(f"Error streaming music: {e}")

@@ -50,6 +50,7 @@ static void ws_event_handler(void* handler_args, esp_event_base_t base, int32_t 
     case WEBSOCKET_EVENT_ERROR:
         ESP_LOGW(TAG, "WS Error");
         s_state = WS_STATE_ERROR;
+        s_connected = false;
         if (s_err_cb) s_err_cb("Connection error");
         break;
         
@@ -66,7 +67,7 @@ static void ws_event_handler(void* handler_args, esp_event_base_t base, int32_t 
                     if (s_text_cb) s_text_cb(text);
                     free(text);
                 }
-            } else {
+            } else if (data->op_code == WS_TRANSPORT_OPCODES_BINARY) {
                 // Binary/audio data
                 ESP_LOGD(TAG, "WS Binary: %d bytes", data->data_len);
                 if (s_data_cb) s_data_cb((const uint8_t*)data->data_ptr, data->data_len, WS_TYPE_BINARY);
@@ -122,8 +123,7 @@ esp_err_t ws_connect(const char* url) {
     bool is_secure = (strncmp(url, "wss://", 6) == 0);
     if (is_secure) {
         cfg.crt_bundle_attach = esp_crt_bundle_attach;
-        cfg.skip_cert_common_name_check = true;
-        ESP_LOGI(TAG, "TLS: enabled (wss://)");
+        ESP_LOGI(TAG, "TLS: enabled (wss://) - using bundle");
     } else {
         cfg.crt_bundle_attach = NULL;
         ESP_LOGI(TAG, "TLS: disabled (ws://)");

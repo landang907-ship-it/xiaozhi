@@ -25,7 +25,7 @@ Esp32S3AudioCodec::Esp32S3AudioCodec(i2s_chan_handle_t speaker_handle,
     input_channels_ = 1;
     output_channels_ = 1;
     output_volume_ = 70;     // 0-100 scale
-    input_gain_ = 1.0f;      // pass-through by default
+    input_gain_ = 4.0f;      // 4x — prevents hard clipping; server normalizes peak to 0.9
     tx_handle_ = speaker_handle;
     rx_handle_ = mic_handle;
 }
@@ -55,10 +55,8 @@ void Esp32S3AudioCodec::EnableOutput(bool enable) {
 int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
     if (!input_enabled_ || rx_handle_ == nullptr) return 0;
 
-    // INMP441 outputs 24-bit data in 32-bit slot (Philips format, left-justified).
-    // 24-bit PCM occupies the top 3 bytes of the 32-bit word.
-    // We read as 32-bit words and convert: raw >> 8 gives signed 24-bit value
-    // in int16 range (±8M → ±32768). MONO mode = 1 word per sample.
+    // We configured the I2S slot width as 32-bit and slot mask as LEFT.
+    // So the driver only writes 32-bit words (4 bytes) of the Left channel to the DMA buffer.
     std::vector<int32_t> raw(samples);
     size_t bytes_read = 0;
     esp_err_t ret = i2s_channel_read(rx_handle_, raw.data(),
@@ -67,17 +65,25 @@ int Esp32S3AudioCodec::Read(int16_t* dest, int samples) {
         ESP_LOGE(TAG, "i2s read failed: %s", esp_err_to_name(ret));
         return 0;
     }
-    int words_read = bytes_read / sizeof(int32_t);
-    int samples_read = 0;
 
-    // Convert 24-bit PCM → 16-bit PCM: raw >> 8 (top 24 bits → signed int16).
-    for (int i = 0; i < words_read; i++) {
-        dest[samples_read++] = (int16_t)(raw[i] >> 8);
+    int samples_read = bytes_read / sizeof(int32_t);
+    float gain = input_gain_;
+    if (gain <= 0.0f) gain = 3.0f; // Default boost
+
+    for (int i = 0; i < samples_read; i++) {
+        // Shift right by 16 to get clean 16-bit PCM from the 24-bit left-justified data
+        int16_t pcm = (int16_t)(raw[i] >> 16);
+
+        // Apply gain boost
+        if (gain != 1.0f) {
+            int32_t boosted = (int32_t)(pcm * gain);
+            if (boosted > 32767) boosted = 32767;
+            else if (boosted < -32768) boosted = -32768;
+            pcm = (int16_t)boosted;
+        }
+        dest[i] = pcm;
     }
 
-    // Apply input gain if non-unity (integer math to avoid float cache issues on ESP32-S3).
-    // input_gain_ fixed at 1.0f (no gain) - can be expanded later with Q8.24 fixed-point.
-    // if (input_gain_ != 1.0f && samples_read > 0) { ... }
     return samples_read;
 }
 
