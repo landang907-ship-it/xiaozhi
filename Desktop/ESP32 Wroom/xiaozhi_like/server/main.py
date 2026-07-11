@@ -246,9 +246,11 @@ class AIServer:
                 elif prompt:
                     parts.append({"text": prompt})
                     
+                tools = [{"functionDeclarations": [{"name": "play_music", "description": "Play a song from YouTube", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "Name of the song or artist"}}, "required": ["query"]}}]}]
                 payload = {
                     "contents": [{"parts": parts}],
-                    "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]}
+                    "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "tools": tools
                 }
                 async with aiohttp.ClientSession() as session:
                     async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
@@ -262,10 +264,18 @@ class AIServer:
                             if line.startswith("data: "):
                                 try:
                                     data_json = json.loads(line[6:])
-                                    text_val = data_json["candidates"][0]["content"]["parts"][0]["text"]
-                                    text = process_chunk(text_val)
-                                    if text:
-                                        yield text
+                                    for part in data_json.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                                        if "functionCall" in part:
+                                            fc = part["functionCall"]
+                                            name = fc.get("name")
+                                            args = fc.get("args", {})
+                                            query = args.get("query", "")
+                                            yield f"<TOOL:{name}:{query}>"
+                                        elif "text" in part:
+                                            text_val = part["text"]
+                                            text = process_chunk(text_val)
+                                            if text:
+                                                yield text
                                 except:
                                     pass
                 text = process_chunk("")
@@ -336,6 +346,77 @@ class AIServer:
         except Exception as e:
             logger.error(f"TTS error: {e}")
             return b""
+
+    async def play_music_stream(self, websocket, query: str):
+        import asyncio
+        logger.info(f"Searching and playing music for: {query}")
+        
+        # 1. Get audio URL using yt-dlp
+        proc = await asyncio.create_subprocess_exec(
+            "yt-dlp", f"ytsearch1:{query}", "--get-url", "-f", "bestaudio",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.error(f"yt-dlp failed: {stderr.decode()}")
+            await websocket.send(json.dumps({"type": "llm_response", "text": "Không tìm thấy bài hát."}))
+            return
+            
+        audio_url = stdout.decode().strip()
+        logger.info(f"Found audio URL: {audio_url[:50]}...")
+        
+        await websocket.send(json.dumps({"action": "startSpeaking"}))
+        
+        # 2. Stream using FFmpeg
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-i", audio_url,
+            "-f", "s16le",
+            "-ac", "1",
+            "-ar", "24000",
+            "pipe:1"
+        ]
+        
+        ffmpeg_proc = await asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        
+        start_time = time.time()
+        bytes_sent = 0
+        
+        try:
+            while True:
+                chunk = await ffmpeg_proc.stdout.read(4000)
+                if not chunk:
+                    break
+                    
+                import numpy as np
+                s16_array = np.frombuffer(chunk, dtype=np.int16)
+                u8_array = ((s16_array.astype(np.int32) >> 8) + 128).clip(0, 255).astype(np.uint8)
+                u8_chunk = u8_array.tobytes()
+                
+                await websocket.send(u8_chunk)
+                bytes_sent += len(u8_chunk)
+                
+                elapsed = time.time() - start_time
+                bytes_played = elapsed * 24000
+                buffer_level = bytes_sent - bytes_played
+                
+                if buffer_level > 24000:
+                    await asyncio.sleep(0.05)
+                    
+        except Exception as e:
+            logger.error(f"Error streaming music: {e}")
+        finally:
+            try:
+                ffmpeg_proc.kill()
+            except:
+                pass
+            await ffmpeg_proc.wait()
+            await websocket.send(json.dumps({"action": "stopSpeaking"}))
 
     # ── Audio processing pipeline ─────────────────────────────────────────────
 
@@ -436,6 +517,23 @@ class AIServer:
         
         # Bypass ASR! Send raw WAV bytes directly to Gemini!
         async for text_chunk in self.llm_generate_stream(wav_bytes=wav_bytes):
+            if text_chunk.startswith("<TOOL:play_music:"):
+                query = text_chunk.split(":", 2)[2].strip(">")
+                # Stop existing TTS
+                sentence = sentence_buffer.strip()
+                if sentence:
+                    await text_queue.put(sentence)
+                await text_queue.put(None)
+                await tts_task
+                await pacer_task
+                
+                await websocket.send(json.dumps({"action": "stopSpeaking"}))
+                
+                # Tell user we are playing
+                await websocket.send(json.dumps({"type": "llm_response", "text": f"Đang phát: {query}"}))
+                await self.play_music_stream(websocket, query)
+                return
+                
             sentence_buffer += text_chunk
             
             while True:
