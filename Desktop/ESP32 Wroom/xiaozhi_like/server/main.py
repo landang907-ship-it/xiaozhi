@@ -359,8 +359,9 @@ class AIServer:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            logger.error(f"yt-dlp failed: {stderr.decode()}")
-            await websocket.send(json.dumps({"type": "llm_response", "text": "Không tìm thấy bài hát."}))
+            err_msg = stderr.decode()[:100]
+            logger.error(f"yt-dlp failed: {err_msg}")
+            await websocket.send(json.dumps({"type": "llm_response", "text": f"Lỗi nhạc: {err_msg}"}))
             return
             
         audio_url = stdout.decode().strip()
