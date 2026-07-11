@@ -66,3 +66,4 @@ Xem chi tiết trong [STATE.md](STATE.md).
 ## 📜 License
 
 GPL-3.0 (theo upstream [78/xiaozhi-esp32](https://github.com/78/xiaozhi-esp32)).
+  
