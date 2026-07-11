@@ -20,7 +20,7 @@ AUDIO_CHANNELS = 1
 # LLM Settings
 DEFAULT_LLM = "openai"  # "ollama" | "openai"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-OPENAI_MODEL = "gemini-flash-lite-latest"
+OPENAI_MODEL = "gemini-1.5-flash-8b"
 SYSTEM_PROMPT = "Bạn là Tiểu Trí, một trợ lý ảo thông minh, luôn trả lời ngắn gọn và súc tích bằng tiếng Việt."
 
 # TTS Settings
