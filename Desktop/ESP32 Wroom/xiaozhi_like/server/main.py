@@ -597,6 +597,14 @@ class AIServer:
 
         ws_wrap = WSWrap()
 
+        opus_decoder = None
+        try:
+            import opuslib
+            # Expecting 16kHz, 1 channel from ESP32 OPUS encoder
+            opus_decoder = opuslib.Decoder(16000, 1)
+        except Exception as e:
+            logger.warning(f"Could not initialize opuslib: {e}. Falling back to RAW PCM.")
+
         # Tell device to start sending audio
         await ws_wrap.send(json.dumps({"action": "listening"}))
 
@@ -609,9 +617,17 @@ class AIServer:
                     )
 
                     if msg.type == aiohttp.WSMsgType.BINARY:
-                        audio_buffer.extend(msg.data)
+                        if opus_decoder:
+                            try:
+                                # 960 samples = 60ms at 16kHz
+                                pcm_bytes = opus_decoder.decode(msg.data, 960)
+                                audio_buffer.extend(pcm_bytes)
+                            except Exception as e:
+                                logger.error(f"OPUS decode error: {e}")
+                        else:
+                            audio_buffer.extend(msg.data)
 
-                        # Force-process if buffer is too large
+                        # Force-process if buffer is too large (using 16-bit 16kHz = 32KB/sec)
                         if len(audio_buffer) >= MAX_AUDIO_BYTES:
                             logger.info("Buffer full — forcing process")
                             await self._process_audio_buffer(ws_wrap, audio_buffer)

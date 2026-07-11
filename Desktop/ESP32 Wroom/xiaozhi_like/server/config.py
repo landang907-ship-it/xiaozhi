@@ -14,7 +14,7 @@ HOST = "0.0.0.0"
 PORT = 8080
 
 # Audio Settings
-SAMPLE_RATE = 24000  # Match ESP32 mic sample rate
+SAMPLE_RATE = 16000  # Match ESP32 mic sample rate
 AUDIO_CHANNELS = 1
 
 # LLM Settings

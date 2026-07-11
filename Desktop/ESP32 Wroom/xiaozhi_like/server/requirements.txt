@@ -4,6 +4,7 @@ aiohttp>=3.9.0
 openai>=1.0.0
 edge-tts>=6.1.0
 yt-dlp>=2024.0.0
+opuslib>=3.0.1
 
 # Added for Audio decoding/processing on Cloud
 numpy>=1.26.0
