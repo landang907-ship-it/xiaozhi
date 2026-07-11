@@ -351,9 +351,9 @@ class AIServer:
         import asyncio
         logger.info(f"Searching and playing music for: {query}")
         
-        # 1. Get audio URL using yt-dlp
+        # 1. Get audio URL using yt-dlp (Using SoundCloud to avoid YouTube IP bans)
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", f"ytsearch1:{query}", "--get-url", "-f", "bestaudio",
+            "yt-dlp", f"scsearch1:{query}", "--get-url", "-f", "bestaudio",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
