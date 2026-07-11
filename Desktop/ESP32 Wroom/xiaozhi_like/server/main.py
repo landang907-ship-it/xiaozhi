@@ -471,71 +471,83 @@ class AIServer:
 
     # ── Connection handler ────────────────────────────────────────────────────
 
-    async def handle_message(self, websocket, path=None):
+    async def handle_message(self, request):
         """Handle a single WebSocket client connection."""
+        import aiohttp
+        from aiohttp import web
+        websocket = web.WebSocketResponse()
+        await websocket.prepare(request)
+        
         logger.info("Client connected")
         audio_buffer = bytearray()
 
+        # Helper to mimic old websockets send API
+        class WSWrap:
+            async def send(self, data):
+                if isinstance(data, str):
+                    await websocket.send_str(data)
+                elif isinstance(data, bytes):
+                    await websocket.send_bytes(data)
+
+        ws_wrap = WSWrap()
+
         # Tell device to start sending audio
-        await websocket.send(json.dumps({"action": "listening"}))
+        await ws_wrap.send(json.dumps({"action": "listening"}))
 
         try:
             while True:
                 try:
                     # Wait with timeout — expiry = silence detected
-                    message = await asyncio.wait_for(
-                        websocket.recv(), timeout=SILENCE_TIMEOUT_S
+                    msg = await asyncio.wait_for(
+                        websocket.receive(), timeout=SILENCE_TIMEOUT_S
                     )
 
-                    if isinstance(message, bytes):
-                        audio_buffer.extend(message)
+                    if msg.type == aiohttp.WSMsgType.BINARY:
+                        audio_buffer.extend(msg.data)
 
                         # Force-process if buffer is too large
                         if len(audio_buffer) >= MAX_AUDIO_BYTES:
                             logger.info("Buffer full — forcing process")
-                            await self._process_audio_buffer(websocket, audio_buffer)
+                            await self._process_audio_buffer(ws_wrap, audio_buffer)
                             audio_buffer.clear()
                             # Back to listening after processing
-                            await websocket.send(json.dumps({"action": "listening"}))
+                            await ws_wrap.send(json.dumps({"action": "listening"}))
 
-                    else:
+                    elif msg.type == aiohttp.WSMsgType.TEXT:
                         # Text / JSON command from device
                         try:
-                            data = json.loads(message)
+                            data = json.loads(msg.data)
                         except Exception:
-                            logger.warning(f"Non-JSON text: {message!r}")
+                            logger.warning(f"Non-JSON text: {msg.data!r}")
                             continue
 
                         cmd = data.get("cmd")
                         if data.get("state") == "stop_capture":
                             if len(audio_buffer) >= MIN_AUDIO_BYTES:
                                 logger.info("Received stop_capture signal. Processing immediately.")
-                                await self._process_audio_buffer(websocket, audio_buffer)
+                                await self._process_audio_buffer(ws_wrap, audio_buffer)
                                 audio_buffer.clear()
-                                await websocket.send(json.dumps({"action": "listening"}))
+                                await ws_wrap.send(json.dumps({"action": "listening"}))
                             continue
 
                         if cmd == "ping":
-                            await websocket.send(json.dumps({"type": "pong"}))
-                        elif cmd == "llm_ask":
-                            response = await self.llm_generate(data.get("text", ""))
-                            if response:
-                                await websocket.send(json.dumps({
-                                    "type": "llm_response", "text": response
-                                }))
+                            await ws_wrap.send(json.dumps({"type": "pong"}))
                         elif cmd == "tts_speak":
                             audio = await self.tts_speak(data.get("text", ""))
                             if audio:
-                                await websocket.send(json.dumps({"action": "startSpeaking"}))
-                                await websocket.send(audio)
-                                await websocket.send(json.dumps({"action": "stopSpeaking"}))
+                                await ws_wrap.send(json.dumps({"action": "startSpeaking"}))
+                                await ws_wrap.send(audio)
+                                await ws_wrap.send(json.dumps({"action": "stopSpeaking"}))
+                                
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
 
                 except asyncio.TimeoutError:
                     # ─── Silence detected ─────────────────────────────────────
                     if len(audio_buffer) >= MIN_AUDIO_BYTES:
-                        await self._process_audio_buffer(websocket, audio_buffer)
+                        await self._process_audio_buffer(ws_wrap, audio_buffer)
                         audio_buffer.clear()
-                        await websocket.send(json.dumps({"action": "listening"}))
+                        await ws_wrap.send(json.dumps({"action": "listening"}))
                     elif audio_buffer:
                         logger.info(
                             f"Buffer too short ({len(audio_buffer)} bytes < "
@@ -544,11 +556,16 @@ class AIServer:
                         audio_buffer.clear()
                     # If buffer empty and silence — stay in listening, do nothing
 
-        except websockets.exceptions.ConnectionClosed:
-            logger.info("Client disconnected")
         except Exception as e:
             logger.error(f"Handler error: {e}", exc_info=True)
+        finally:
+            logger.info("Client disconnected")
+            return websocket
 
+
+async def health_check(request):
+    from aiohttp import web
+    return web.Response(text="OK")
 
 async def main():
     server = AIServer()
@@ -556,21 +573,27 @@ async def main():
     await server.init_llm()
     await server.init_tts()
 
-    import http
-    async def process_request(connection, request):
-        if request.headers.get("Upgrade", "").lower() != "websocket":
-            return connection.respond(http.HTTPStatus.OK, "OK\n")
-        return None
+    from aiohttp import web
+    app = web.Application()
+    app.router.add_get('/', server.handle_message)
+    app.router.add_get('/ws', server.handle_message)
+    app.router.add_get('/healthz', health_check)
+    app.router.add_head('/', health_check)
+    app.router.add_head('/healthz', health_check)
 
-    async with websockets.serve(server.handle_message, HOST, PORT, process_request=process_request):
-        logger.info(f"P8 Server listening on ws://{HOST}:{PORT}")
-        logger.info(f"  ASR: {DEFAULT_ASR}")
-        logger.info(f"  LLM: {DEFAULT_LLM}")
-        logger.info(f"  TTS: {DEFAULT_TTS}")
-        logger.info(f"  Silence timeout: {SILENCE_TIMEOUT_S}s")
-        logger.info(f"  Min buffer: {MIN_AUDIO_BYTES/ESP32_SAMPLE_RATE:.1f}s")
-        logger.info(f"  Max buffer: {MAX_AUDIO_BYTES/ESP32_SAMPLE_RATE:.1f}s")
-        await asyncio.Future()  # Run forever
+    port = int(os.environ.get("PORT", PORT))
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    logger.info(f"P8 Server listening on 0.0.0.0:{port} using aiohttp")
+    logger.info(f"  ASR: {DEFAULT_ASR}")
+    logger.info(f"  LLM: {DEFAULT_LLM}")
+    logger.info(f"  TTS: {DEFAULT_TTS}")
+    
+    await asyncio.Future()  # Run forever
 
 
 if __name__ == "__main__":
