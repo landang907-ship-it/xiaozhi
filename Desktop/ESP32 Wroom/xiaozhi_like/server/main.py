@@ -556,7 +556,13 @@ async def main():
     await server.init_llm()
     await server.init_tts()
 
-    async with websockets.serve(server.handle_message, HOST, PORT):
+    import http
+    async def process_request(connection, request):
+        if request.path == "/" or request.path == "/healthz":
+            return connection.respond(http.HTTPStatus.OK, "OK\n")
+        return None
+
+    async with websockets.serve(server.handle_message, HOST, PORT, process_request=process_request):
         logger.info(f"P8 Server listening on ws://{HOST}:{PORT}")
         logger.info(f"  ASR: {DEFAULT_ASR}")
         logger.info(f"  LLM: {DEFAULT_LLM}")
