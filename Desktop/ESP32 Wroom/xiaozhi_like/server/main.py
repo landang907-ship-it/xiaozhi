@@ -558,7 +558,7 @@ async def main():
 
     import http
     async def process_request(connection, request):
-        if request.path == "/" or request.path == "/healthz":
+        if request.headers.get("Upgrade", "").lower() != "websocket":
             return connection.respond(http.HTTPStatus.OK, "OK\n")
         return None
 
