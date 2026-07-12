@@ -130,13 +130,39 @@ class AIServer:
             self.llm = {"type": "ollama", "url": OLLAMA_URL, "model": OLLAMA_MODEL}
             logger.info(f"Ollama LLM: {OLLAMA_URL} model={OLLAMA_MODEL}")
         elif DEFAULT_LLM == "openai" and OPENAI_API_KEY:
+            # Auto-scan Google Gemini Models
+            logger.info("Scanning for available Google Gemini models...")
+            candidate_models = [
+                "gemini-2.5-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-8b",
+                "gemini-flash-lite-latest"
+            ]
+            working_model = OPENAI_MODEL
+            
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                for model in candidate_models:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={OPENAI_API_KEY}"
+                    payload = {"contents": [{"parts": [{"text": "Hi"}]}]}
+                    try:
+                        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                            if resp.status == 200:
+                                working_model = model
+                                logger.info(f"Found active Google Gemini model: {model}")
+                                break
+                            else:
+                                logger.warning(f"Gemini model {model} not available (status {resp.status})")
+                    except Exception as e:
+                        logger.warning(f"Failed to check Gemini model {model}: {e}")
+            
             self.llm = {
                 "type": "openai", 
-                "model": OPENAI_MODEL, 
+                "model": working_model, 
                 "api_key": OPENAI_API_KEY, 
                 "base_url": OPENAI_BASE_URL
             }
-            logger.info(f"OpenAI LLM: {OPENAI_MODEL} (Base URL: {OPENAI_BASE_URL})")
+            logger.info(f"OpenAI LLM (Gemini): Active model set to {working_model}")
         else:
             self.llm = None
             logger.warning("LLM not configured. Set DEFAULT_LLM=ollama or OPENAI_API_KEY.")
