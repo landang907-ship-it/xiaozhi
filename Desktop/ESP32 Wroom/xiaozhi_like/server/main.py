@@ -517,10 +517,23 @@ class AIServer:
                     break
                 logger.info(f"TTS Chunk: '{sentence}'")
                 await websocket.send(json.dumps({"type": "llm_response", "text": sentence + " "}))
+        async def tts_worker():
+            while True:
+                item = await text_queue.get()
+                if item is None:
+                    await audio_queue.put(None)
+                    break
                 
-                tts_audio = await self.tts_speak(sentence)
-                if tts_audio:
-                    await audio_queue.put(tts_audio)
+                sentence, task = item
+                logger.info(f"TTS Chunk: '{sentence}'")
+                await websocket.send(json.dumps({"type": "llm_response", "text": sentence + " "}))
+                
+                try:
+                    tts_audio = await task
+                    if tts_audio:
+                        await audio_queue.put(tts_audio)
+                except Exception as e:
+                    logger.error(f"TTS prefetch error: {e}")
                 text_queue.task_done()
                 
         tts_task = asyncio.create_task(tts_worker())
@@ -562,7 +575,7 @@ class AIServer:
         pacer_task = asyncio.create_task(audio_pacer())
         
         sentence_buffer = ""
-        delimiters = {'.', ',', '?', '!', '\n', ':', ';'}
+        delimiters = {'.', '?', '!', '\n', ';'}
         
         # Bypass ASR! Send raw WAV bytes directly to Gemini!
         async for text_chunk in self.llm_generate_stream(wav_bytes=wav_bytes):
@@ -571,7 +584,8 @@ class AIServer:
                 # Stop existing TTS
                 sentence = sentence_buffer.strip()
                 if sentence:
-                    await text_queue.put(sentence)
+                    task = asyncio.create_task(self.tts_speak(sentence))
+                    await text_queue.put((sentence, task))
                 await text_queue.put(None)
                 await tts_task
                 await pacer_task
@@ -597,14 +611,16 @@ class AIServer:
                     sentence_buffer = sentence_buffer[first_delim_idx+1:]
                     
                     if len(sentence) > 1:
-                        await text_queue.put(sentence)
+                        task = asyncio.create_task(self.tts_speak(sentence))
+                        await text_queue.put((sentence, task))
                 else:
                     break
         
         # Flush remaining text
         sentence = sentence_buffer.strip()
         if sentence:
-            await text_queue.put(sentence)
+            task = asyncio.create_task(self.tts_speak(sentence))
+            await text_queue.put((sentence, task))
             
         await text_queue.put(None)
         await tts_task
