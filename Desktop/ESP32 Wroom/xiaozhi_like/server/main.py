@@ -33,11 +33,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── Audio constants ───────────────────────────────────────────────────────────
-ESP32_SAMPLE_RATE   = 24000   # ESP32 INMP441 sample rate
+ESP32_SAMPLE_RATE   = 16000   # ESP32 INMP441 sample rate (after OPUS decode = int16 PCM 16kHz)
 WHISPER_SAMPLE_RATE = 16000   # Whisper expected sample rate
 SILENCE_TIMEOUT_S   = 1.5     # Seconds of silence before processing
-MIN_AUDIO_BYTES     = ESP32_SAMPLE_RATE * 1     # Min 1 second of u8 audio
-MAX_AUDIO_BYTES     = ESP32_SAMPLE_RATE * 8     # Max 8 second buffer
+MIN_AUDIO_BYTES     = ESP32_SAMPLE_RATE * 2 * 1   # Min 1 second of int16 audio (2 bytes/sample)
+MAX_AUDIO_BYTES     = ESP32_SAMPLE_RATE * 2 * 8   # Max 8 second buffer
 
 
 def u8_24k_to_float32_16k(u8_data: bytes) -> np.ndarray:
@@ -68,8 +68,23 @@ def u8_24k_to_float32_16k(u8_data: bytes) -> np.ndarray:
     return resampled.astype(np.float32) / 32768.0
 
 
+def build_wav_from_pcm16(pcm16_data: bytes) -> bytes:
+    """
+    Build a 16-bit 16kHz WAV directly from int16 LE PCM bytes (output of opuslib decoder).
+    This is used when ESP32 sends OPUS-encoded audio that the server decodes with opuslib.
+    """
+    int16_array = np.frombuffer(pcm16_data, dtype=np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(int16_array.tobytes())
+    return buf.getvalue()
+
+
 def build_wav(u8_data: bytes) -> bytes:
-    """Build a 16-bit 16kHz WAV from u8 24kHz data (for file-based ASR)."""
+    """Build a 16-bit 16kHz WAV from u8 24kHz data (legacy path, kept for compatibility)."""
     float32 = u8_24k_to_float32_16k(u8_data)
     int16 = (float32 * 32767).clip(-32768, 32767).astype(np.int16)
     buf = io.BytesIO()
@@ -437,7 +452,7 @@ class AIServer:
         """
         logger.info(
             f"Processing audio buffer: {len(audio_buffer)} bytes "
-            f"({len(audio_buffer)/ESP32_SAMPLE_RATE:.1f}s)"
+            f"({len(audio_buffer) / (ESP32_SAMPLE_RATE * 2):.1f}s)"
         )
 
         # ── Save WAV and Raw binary for diagnostic ────────────────────────────
@@ -448,11 +463,11 @@ class AIServer:
                 f.write(bytes(audio_buffer))
             logger.info(f"Saved debug RAW: {raw_path} ({len(audio_buffer)} bytes)")
 
-            wav_bytes = build_wav(bytes(audio_buffer))
+            wav_bytes = build_wav_from_pcm16(bytes(audio_buffer))
             wav_path = f"debug_audio_{timestamp}.wav"
             with open(wav_path, "wb") as f:
                 f.write(wav_bytes)
-            logger.info(f"Saved debug WAV: {wav_path} ({len(wav_bytes)} bytes)")
+            logger.info(f"Saved debug WAV (PCM16 16kHz): {wav_path} ({len(wav_bytes)} bytes)")
         except Exception as e:
             logger.warning(f"Could not save debug files: {e}")
 
