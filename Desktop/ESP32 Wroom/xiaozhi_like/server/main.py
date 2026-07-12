@@ -225,8 +225,132 @@ class AIServer:
             return ""
 
 
+    # ── Tool definitions sent to Gemini ──────────────────────────────────────
+    TOOL_DECLARATIONS = [{
+        "functionDeclarations": [
+            {
+                "name": "get_current_time",
+                "description": "Trả về ngày và giờ hiện tại của hệ thống.",
+                "parameters": {"type": "OBJECT", "properties": {}}
+            },
+            {
+                "name": "control_led",
+                "description": "Bật hoặc tắt đèn LED trên thiết bị phần cứng ESP32.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "state": {
+                            "type": "STRING",
+                            "description": "Trạng thái: 'on' để bật đèn, 'off' để tắt đèn",
+                            "enum": ["on", "off"]
+                        }
+                    },
+                    "required": ["state"]
+                }
+            },
+            {
+                "name": "play_music",
+                "description": "Tìm kiếm và phát nhạc theo tên bài hát hoặc ca sĩ.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Tên bài hát hoặc ca sĩ cần tìm"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "set_timer",
+                "description": "Đặt hẹn giờ sau một khoảng thời gian nhất định (tính bằng giây) và thông báo khi hết giờ.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "seconds": {
+                            "type": "INTEGER",
+                            "description": "Số giây cần đặt hẹn giờ"
+                        },
+                        "label": {
+                            "type": "STRING",
+                            "description": "Nhãn mô tả hẹn giờ, ví dụ: 'trứng', 'tập thể dục'"
+                        }
+                    },
+                    "required": ["seconds"]
+                }
+            }
+        ]
+    }]
+
+    async def _execute_tool(self, websocket, name: str, args: dict) -> str:
+        """Execute a tool call requested by Gemini and return the result as a string."""
+        logger.info(f"Executing tool: {name}({args})")
+        try:
+            if name == "get_current_time":
+                import datetime
+                now = datetime.datetime.now()
+                # Vietnamese day names
+                day_names = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+                day_name = day_names[now.weekday()]
+                result = f"{day_name}, ngày {now.day} tháng {now.month} năm {now.year}, {now.hour} giờ {now.minute:02d} phút"
+                logger.info(f"Tool get_current_time -> {result}")
+                return result
+
+            elif name == "control_led":
+                state = args.get("state", "on").lower()
+                cmd = json.dumps({"action": "control_led", "state": state})
+                await websocket.send(cmd)
+                result = f"Đèn LED đã được {'bật' if state == 'on' else 'tắt'} thành công."
+                logger.info(f"Tool control_led({state}) -> sent to ESP32")
+                return result
+
+            elif name == "play_music":
+                query = args.get("query", "")
+                # Signal to caller that we need to stream music (special sentinel)
+                return f"__PLAY_MUSIC__:{query}"
+
+            elif name == "set_timer":
+                seconds = int(args.get("seconds", 60))
+                label = args.get("label", "hẹn giờ")
+                # Schedule background timer task
+                asyncio.create_task(self._run_timer(websocket, seconds, label))
+                if seconds >= 3600:
+                    h = seconds // 3600
+                    m = (seconds % 3600) // 60
+                    time_str = f"{h} giờ {m} phút" if m else f"{h} giờ"
+                elif seconds >= 60:
+                    m = seconds // 60
+                    s = seconds % 60
+                    time_str = f"{m} phút {s} giây" if s else f"{m} phút"
+                else:
+                    time_str = f"{seconds} giây"
+                return f"Đã đặt hẹn giờ {label} trong {time_str}."
+
+            else:
+                return f"Công cụ '{name}' chưa được cài đặt."
+        except Exception as e:
+            logger.error(f"Tool {name} error: {e}")
+            return f"Lỗi khi chạy {name}: {str(e)}"
+
+    async def _run_timer(self, websocket, seconds: int, label: str):
+        """Background timer: speaks an alert after the specified duration."""
+        await asyncio.sleep(seconds)
+        alert_text = f"Hết giờ! Hẹn giờ {label} đã hoàn thành."
+        logger.info(f"Timer fired: {alert_text}")
+        try:
+            await websocket.send(json.dumps({"action": "startSpeaking"}))
+            await websocket.send(json.dumps({"type": "llm_response", "text": alert_text}))
+            audio = await self.tts_speak(alert_text)
+            if audio:
+                await websocket.send(audio)
+            await websocket.send(json.dumps({"action": "stopSpeaking"}))
+        except Exception as e:
+            logger.error(f"Timer alert error: {e}")
+
     async def llm_generate_stream(self, prompt: str = None, wav_bytes: bytes = None):
         """Yield response chunks from LLM (Ollama or Gemini)."""
+        # This is kept for backward-compat; the real path is llm_chat below.
         if not self.llm:
             yield "LLM not configured."
             return
@@ -337,6 +461,129 @@ class AIServer:
         except Exception as e:
             logger.error(f"LLM error: {e}")
             yield "Xin lỗi, máy chủ AI đang gặp sự cố kết nối, vui lòng thử lại sau."
+
+    async def llm_chat(self, websocket, wav_bytes: bytes = None, extra_prompt: str = None):
+        """
+        Full conversational turn with native Gemini Function Calling loop.
+        Returns async generator of text chunks for TTS streaming.
+        May also side-effect: send control_led, timer commands to websocket.
+        """
+        if not self.llm or self.llm["type"] != "openai":
+            async def _fallback():
+                async for chunk in self.llm_generate_stream(wav_bytes=wav_bytes):
+                    yield chunk
+            async for c in _fallback(): yield c
+            return
+
+        import aiohttp, base64
+        api_key = self.llm["api_key"]
+        model = self.llm["model"]
+
+        # Build initial contents list
+        user_parts = []
+        if wav_bytes:
+            b64 = base64.b64encode(wav_bytes).decode()
+            user_parts.append({"inlineData": {"mimeType": "audio/wav", "data": b64}})
+            user_parts.append({"text": extra_prompt or "Trả lời tự nhiên, ngắn gọn yêu cầu của tôi. KHÔNG nhắc đến 'ghi âm'."})
+        elif extra_prompt:
+            user_parts.append({"text": extra_prompt})
+
+        contents = [{"role": "user", "parts": user_parts}]
+        system_instruction = {"parts": [{"text": SYSTEM_PROMPT}]}
+
+        # Tool calling loop — Gemini may chain multiple tool calls
+        MAX_TOOL_ROUNDS = 5
+        for tool_round in range(MAX_TOOL_ROUNDS):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            payload = {
+                "contents": contents,
+                "systemInstruction": system_instruction,
+                "tools": self.TOOL_DECLARATIONS,
+                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        err = await resp.text()
+                        logger.error(f"Gemini API error {resp.status}: {err[:200]}")
+                        yield "Xin lỗi, có lỗi kết nối máy chủ AI."
+                        return
+                    response_data = await resp.json()
+
+            candidate = response_data.get("candidates", [{}])[0]
+            content = candidate.get("content", {})
+            finish_reason = candidate.get("finishReason", "")
+            parts = content.get("parts", [])
+
+            # Add model response to history
+            contents.append({"role": "model", "parts": parts})
+
+            # Check for function calls
+            tool_calls = [p for p in parts if "functionCall" in p]
+
+            if tool_calls:
+                logger.info(f"Gemini requested {len(tool_calls)} tool call(s) (round {tool_round+1})")
+                function_responses = []
+                play_music_query = None
+
+                for tc in tool_calls:
+                    fc = tc["functionCall"]
+                    name = fc["name"]
+                    args = fc.get("args", {})
+                    result_str = await self._execute_tool(websocket, name, args)
+
+                    if result_str.startswith("__PLAY_MUSIC__:"):
+                        play_music_query = result_str.split(":", 1)[1]
+                        result_str = f"Đang tìm và chuẩn bị phát: {play_music_query}"
+
+                    function_responses.append({
+                        "functionResponse": {
+                            "name": name,
+                            "response": {"result": result_str}
+                        }
+                    })
+
+                # If music was requested, we'll signal the caller
+                if play_music_query:
+                    yield f"<PLAY_MUSIC>:{play_music_query}"
+                    return
+
+                # Feed all tool results back into conversation
+                contents.append({"role": "user", "parts": function_responses})
+                # Continue the loop to get Gemini's final natural response
+                continue
+
+            # No tool calls — stream the text response
+            in_think = False
+            think_buf = ""
+            for p in parts:
+                if "text" in p:
+                    raw = p["text"]
+                    # Filter out <think>...</think> blocks
+                    i = 0
+                    result_text = ""
+                    while i < len(raw):
+                        if not in_think:
+                            think_start = raw.find("<think>", i)
+                            if think_start == -1:
+                                result_text += raw[i:]
+                                break
+                            result_text += raw[i:think_start]
+                            in_think = True
+                            i = think_start + 7
+                        else:
+                            think_end = raw.find("</think>", i)
+                            if think_end == -1:
+                                break  # incomplete, will be filtered
+                            in_think = False
+                            i = think_end + 8
+                    if result_text.strip():
+                        yield result_text
+            return
+
+        logger.warning("Tool calling loop exceeded max rounds")
+        yield "Xin lỗi, tôi không thể hoàn thành yêu cầu ngay bây giờ."
 
     async def tts_speak(self, text: str) -> bytes:
         if not self.tts or not text:
@@ -503,20 +750,11 @@ class AIServer:
         # Send placeholder text to ESP32 screen
         await websocket.send(json.dumps({"type": "asr_result", "text": "🎤 Đang gửi âm thanh cho Gemini..."}))
         
-        logger.info("Starting LLM stream (End-to-End Audio) and TTS chunks...")
+        logger.info("Starting LLM chat (Function Calling) and TTS pipeline...")
         await websocket.send(json.dumps({"action": "startSpeaking"}))
         
         audio_queue = asyncio.Queue()
         text_queue = asyncio.Queue()
-        
-        async def tts_worker():
-            while True:
-                sentence = await text_queue.get()
-                if sentence is None:
-                    await audio_queue.put(None)
-                    break
-                logger.info(f"TTS Chunk: '{sentence}'")
-                await websocket.send(json.dumps({"type": "llm_response", "text": sentence + " "}))
         async def tts_worker():
             while True:
                 item = await text_queue.get()
@@ -576,61 +814,49 @@ class AIServer:
         
         sentence_buffer = ""
         delimiters = {'.', '?', '!', '\n', ';'}
+        play_music_query = None
         
-        # Bypass ASR! Send raw WAV bytes directly to Gemini!
-        async for text_chunk in self.llm_generate_stream(wav_bytes=wav_bytes):
-            if text_chunk.startswith("<TOOL:play_music:"):
-                query = text_chunk.split(":", 2)[2].strip(">")
-                # Stop existing TTS
-                sentence = sentence_buffer.strip()
-                if sentence:
-                    task = asyncio.create_task(self.tts_speak(sentence))
-                    await text_queue.put((sentence, task))
-                await text_queue.put(None)
-                await tts_task
-                await pacer_task
-                
-                await websocket.send(json.dumps({"action": "stopSpeaking"}))
-                
-                # Tell user we are playing
-                await websocket.send(json.dumps({"type": "llm_response", "text": f"Đang phát: {query}"}))
-                await self.play_music_stream(websocket, query)
-                return
-                
+        # Use the full llm_chat (Function Calling) pipeline
+        async for text_chunk in self.llm_chat(websocket, wav_bytes=wav_bytes):
+            if text_chunk.startswith("<PLAY_MUSIC>:"):
+                play_music_query = text_chunk.split(":", 1)[1]
+                break
+
             sentence_buffer += text_chunk
-            
+
             while True:
                 first_delim_idx = -1
                 for i in range(len(sentence_buffer)):
                     if sentence_buffer[i] in delimiters:
                         first_delim_idx = i
                         break
-                        
+
                 if first_delim_idx != -1:
                     sentence = sentence_buffer[:first_delim_idx+1].strip()
                     sentence_buffer = sentence_buffer[first_delim_idx+1:]
-                    
+
                     if len(sentence) > 1:
                         task = asyncio.create_task(self.tts_speak(sentence))
                         await text_queue.put((sentence, task))
                 else:
                     break
-        
-        # Flush remaining text
+
+        # Flush remaining text buffer
         sentence = sentence_buffer.strip()
         if sentence:
             task = asyncio.create_task(self.tts_speak(sentence))
             await text_queue.put((sentence, task))
-            
+
         await text_queue.put(None)
         await tts_task
         await pacer_task
 
         await websocket.send(json.dumps({"action": "stopSpeaking"}))
-        return
 
-        # No meaningful output — go straight back to listening
-        await websocket.send(json.dumps({"action": "stopSpeaking"}))
+        # If Gemini requested music playback, do it now (after TTS finished)
+        if play_music_query:
+            await websocket.send(json.dumps({"type": "llm_response", "text": f"Đang phát: {play_music_query}"}))
+            await self.play_music_stream(websocket, play_music_query)
 
     # ── Connection handler ────────────────────────────────────────────────────
 
