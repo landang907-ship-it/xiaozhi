@@ -866,7 +866,9 @@ class AIServer:
         # If Gemini requested music playback, do it now (after TTS finished)
         if play_music_query:
             await websocket.send(json.dumps({"type": "llm_response", "text": f"Đang phát: {play_music_query}"}))
-            await self.play_music_stream(websocket, play_music_query)
+            return play_music_query
+            
+        return None
 
     # ── Connection handler ────────────────────────────────────────────────────
 
@@ -901,6 +903,8 @@ class AIServer:
         # Tell device to start sending audio
         await ws_wrap.send(json.dumps({"action": "listening"}))
 
+        music_task = None
+
         try:
             while True:
                 try:
@@ -923,10 +927,11 @@ class AIServer:
                         # Force-process if buffer is too large (using 16-bit 16kHz = 32KB/sec)
                         if len(audio_buffer) >= MAX_AUDIO_BYTES:
                             logger.info("Buffer full — forcing process")
-                            await self._process_audio_buffer(ws_wrap, audio_buffer)
+                            query = await self._process_audio_buffer(ws_wrap, audio_buffer)
                             audio_buffer.clear()
-                            # Back to listening after processing
                             await ws_wrap.send(json.dumps({"action": "listening"}))
+                            if query:
+                                music_task = asyncio.create_task(self.play_music_stream(ws_wrap, query))
 
                     elif msg.type == aiohttp.WSMsgType.TEXT:
                         # Text / JSON command from device
@@ -938,11 +943,23 @@ class AIServer:
 
                         cmd = data.get("cmd")
                         if data.get("state") == "stop_capture":
+                            if music_task and not music_task.done():
+                                music_task.cancel()
+                                music_task = None
+                                
                             if len(audio_buffer) >= MIN_AUDIO_BYTES:
                                 logger.info("Received stop_capture signal. Processing immediately.")
-                                await self._process_audio_buffer(ws_wrap, audio_buffer)
+                                query = await self._process_audio_buffer(ws_wrap, audio_buffer)
                                 audio_buffer.clear()
                                 await ws_wrap.send(json.dumps({"action": "listening"}))
+                                if query:
+                                    music_task = asyncio.create_task(self.play_music_stream(ws_wrap, query))
+                            continue
+                        
+                        if data.get("type") == "listen" and data.get("state") == "start":
+                            if music_task and not music_task.done():
+                                music_task.cancel()
+                                music_task = None
                             continue
 
                         if cmd == "ping":
@@ -960,9 +977,11 @@ class AIServer:
                 except asyncio.TimeoutError:
                     # ─── Silence detected ─────────────────────────────────────
                     if len(audio_buffer) >= MIN_AUDIO_BYTES:
-                        await self._process_audio_buffer(ws_wrap, audio_buffer)
+                        query = await self._process_audio_buffer(ws_wrap, audio_buffer)
                         audio_buffer.clear()
                         await ws_wrap.send(json.dumps({"action": "listening"}))
+                        if query:
+                            music_task = asyncio.create_task(self.play_music_stream(ws_wrap, query))
                     elif audio_buffer:
                         logger.info(
                             f"Buffer too short ({len(audio_buffer)} bytes < "
