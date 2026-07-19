@@ -25,7 +25,7 @@ Esp32S3AudioCodec::Esp32S3AudioCodec(i2s_chan_handle_t speaker_handle,
     input_channels_ = 1;
     output_channels_ = 1;
     output_volume_ = 70;     // 0-100 scale
-    input_gain_ = 4.0f;      // 4x — prevents hard clipping; server normalizes peak to 0.9
+    input_gain_ = 8.0f;      // 8x boost for INMP441
     tx_handle_ = speaker_handle;
     rx_handle_ = mic_handle;
 }

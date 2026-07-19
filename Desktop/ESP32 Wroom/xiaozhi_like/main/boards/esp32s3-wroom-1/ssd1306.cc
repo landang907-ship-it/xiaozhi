@@ -11,50 +11,9 @@ constexpr uint8_t WIDTH = 128;
 constexpr uint8_t HEIGHT = 64;
 constexpr uint8_t PAGE_COUNT = 8;
 
-constexpr uint8_t SSD1306_CMD_PREFIX = 0x00;
-constexpr uint8_t SSD1306_DATA_PREFIX = 0x40;
-
-constexpr uint8_t CMD_DISPLAY_OFF = 0xAE;
-constexpr uint8_t CMD_DISPLAY_ON = 0xAF;
-constexpr uint8_t CMD_SET_MEM_ADDR_MODE = 0x20;
-constexpr uint8_t CMD_HORIZ_ADDR = 0x00;
-constexpr uint8_t CMD_COLUMN_ADDR = 0x21;
-constexpr uint8_t CMD_PAGE_ADDR = 0x22;
-constexpr uint8_t CMD_START_LINE = 0x40;
-constexpr uint8_t CMD_SEG_REMAP = 0xA0;
-constexpr uint8_t CMD_SEG_NOREMAP = 0xA1;
-constexpr uint8_t CMD_SET_MULTIPLEX = 0xA8;
-constexpr uint8_t CMD_COM_SCAN_DIR = 0xC8;
-constexpr uint8_t CMD_COM_SCAN_NDIR = 0xC0;
-constexpr uint8_t CMD_SET_OFFSET = 0xD3;
-constexpr uint8_t CMD_SET_COMPINS = 0xDA;
-constexpr uint8_t CMD_SET_CONTRAST = 0x81;
-constexpr uint8_t CMD_SET_PRECHARGE = 0xD9;
-constexpr uint8_t CMD_SET_VCOMH = 0xDB;
-constexpr uint8_t CMD_DISPLAY_ALLON = 0xA5;
-constexpr uint8_t CMD_DISPLAY_NORMAL = 0xA6;
-constexpr uint8_t CMD_DISPLAY_INVERSE = 0xA7;
-constexpr uint8_t CMD_SET_CLOCKDIV = 0xD5;
-constexpr uint8_t CMD_SET_CHARGEPUMP = 0x8D;
-
-static const uint8_t INIT_SEQUENCE[] = {
-    0xAE,       // Display OFF
-    0xD5, 0x80, // Set clock div
-    0xA8, 0x3F, // Multiplex 1/64
-    0xD3, 0x00, // Display offset
-    0x40,       // Set start line
-    0xA1,       // Seg remap (column 127 = SEG0)
-    0xC8,       // COM scan dir (flip vertical)
-    0xDA, 0x12, // COM pins: sequential, no LR remap
-    0x81, 0xCF, // Contrast 207
-    0xD9, 0xF1, // Pre-charge period
-    0xDB, 0x40, // VCOMH level
-    0x8D, 0x14, // Charge pump ON
-    0xA4,       // Entire display ON -> follows RAM
-    0xA6,       // Normal display (not inverse)
-    0x20, 0x00, // Set addressing mode: HORIZONTAL (required for 0x21/0x22 in Update)
-    0xAF,       // Display ON
-};
+#include "esp_lcd_io_i2c.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_ssd1306.h"
 
 // Minimal 5x7 bitmap font (ASCII 32-126)
 static const uint8_t FONT[][6] = {
@@ -257,25 +216,71 @@ Ssd1306::Ssd1306(i2c_master_bus_handle_t bus) : bus_(bus) {}
 Ssd1306::~Ssd1306() {}
 
 void Ssd1306::Init() {
-    ESP_LOGI(TAG, "Init SSD1306 I2C");
-    // Add OLED device to bus
-    i2c_device_config_t dev_cfg = {};
-    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    dev_cfg.device_address = SSD1306_I2C_ADDR;
-    dev_cfg.scl_speed_hz = 100000;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_, &dev_cfg, &dev_));
-    ESP_LOGI(TAG, "OLED device added on bus");
+    if (panel_ != nullptr) return; // Already init
 
-    // Send init sequence
-    uint8_t cmd[2] = {SSD1306_CMD_PREFIX, 0};
-    for (size_t i = 0; i < sizeof(INIT_SEQUENCE); i++) {
-        cmd[1] = INIT_SEQUENCE[i];
-        esp_err_t err = i2c_master_transmit(dev_, cmd, 2, -1);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "SSD1306 init cmd 0x%02X failed: %s", INIT_SEQUENCE[i], esp_err_to_name(err));
+    ESP_LOGI(TAG, "Init SSD1306 I2C using esp_lcd");
+
+    const uint8_t kAddrs[] = {0x3C, 0x3D};
+    const uint32_t kSpeeds[] = {100000, 400000};
+
+    for (uint8_t addr : kAddrs) {
+        for (uint32_t speed : kSpeeds) {
+            esp_lcd_panel_io_handle_t io = nullptr;
+            esp_lcd_panel_handle_t pnl = nullptr;
+
+            esp_lcd_panel_io_i2c_config_t io_cfg = {};
+            io_cfg.dev_addr = addr;
+            io_cfg.scl_speed_hz = speed;
+            io_cfg.control_phase_bytes = 1;
+            io_cfg.lcd_cmd_bits = 8;
+            io_cfg.lcd_param_bits = 8;
+            io_cfg.dc_bit_offset = 6;
+            io_cfg.flags.disable_control_phase = 1;
+
+            esp_err_t err = esp_lcd_new_panel_io_i2c(bus_, &io_cfg, &io);
+            if (err != ESP_OK) continue;
+
+            esp_lcd_panel_ssd1306_config_t ssd_cfg = {};
+            ssd_cfg.height = HEIGHT;
+
+            esp_lcd_panel_dev_config_t dev_cfg = {};
+            dev_cfg.reset_gpio_num = -1;
+            dev_cfg.flags.reset_active_high = false;
+            dev_cfg.bits_per_pixel = 1;
+            dev_cfg.vendor_config = &ssd_cfg;
+
+            err = esp_lcd_new_panel_ssd1306(io, &dev_cfg, &pnl);
+            if (err != ESP_OK) {
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+
+            err = esp_lcd_panel_reset(pnl);
+            if (err == ESP_OK) err = esp_lcd_panel_init(pnl);
+            if (err != ESP_OK) {
+                esp_lcd_panel_del(pnl);
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+            err = esp_lcd_panel_disp_on_off(pnl, true);
+            if (err != ESP_OK) {
+                esp_lcd_panel_del(pnl);
+                esp_lcd_panel_io_del(io);
+                continue;
+            }
+
+            // Mirror X and Y (flip 180)
+            esp_lcd_panel_io_tx_param(io, 0xA1, nullptr, 0); // SET_SEG_REMAP
+            esp_lcd_panel_io_tx_param(io, 0xC8, nullptr, 0); // SET_COM_SCAN_REMAPPED
+
+            io_ = io;
+            panel_ = pnl;
+            ESP_LOGI(TAG, "SSD1306 initialized at 0x%02X @ %lu Hz", addr, (unsigned long)speed);
+            return;
         }
     }
-    ESP_LOGI(TAG, "SSD1306 init done");
+
+    ESP_LOGE(TAG, "SSD1306 OLED not found or failed to init on both 0x3C and 0x3D!");
 }
 
 void Ssd1306::SetPixel(int x, int y, bool on) {
@@ -325,25 +330,24 @@ void Ssd1306::DrawText(int x, int y, const char* text, bool on) {
     }
 }
 
+void Ssd1306::DrawBitmap(int x, int y, int w, int h, const uint8_t* bitmap, bool on) {
+    int byteWidth = (w + 7) / 8;
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            if (bitmap[j * byteWidth + i / 8] & (128 >> (i & 7))) {
+                SetPixel(x + i, y + j, on);
+            }
+        }
+    }
+}
+
 void Ssd1306::Clear() {
     memset(buffer_, 0, sizeof(buffer_));
 }
 
 void Ssd1306::Update() {
-    // Set column address 0..127
-    uint8_t col_cmd[] = {SSD1306_CMD_PREFIX, CMD_COLUMN_ADDR, 0x00, 0x7F};
-    i2c_master_transmit(dev_, col_cmd, 4, -1);
-    // Set page address 0..7
-    uint8_t page_cmd[] = {SSD1306_CMD_PREFIX, CMD_PAGE_ADDR, 0x00, 0x07};
-    i2c_master_transmit(dev_, page_cmd, 4, -1);
-
-    // Send all data bytes
-    uint8_t buf[WIDTH + 1];
-    buf[0] = SSD1306_DATA_PREFIX;
-    for (int page = 0; page < PAGE_COUNT; page++) {
-        memcpy(&buf[1], &buffer_[page * WIDTH], WIDTH);
-        i2c_master_transmit(dev_, buf, WIDTH + 1, -1);
-    }
+    if (panel_ == nullptr) return;
+    esp_lcd_panel_draw_bitmap(panel_, 0, 0, WIDTH, HEIGHT, buffer_);
 }
 
 void Ssd1306::Fill(bool on) {

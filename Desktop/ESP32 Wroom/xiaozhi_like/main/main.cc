@@ -12,13 +12,19 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
+#include <driver/gpio.h>
 #include "esp32s3_wroom1_board.h"
 #include "esp32s3_audio_codec.h"
+#include "config.h"
+#include "protocols/wifi_manager.h"
+#include "protocols/websocket_client.h"
+#include "audio/stream_player.h"
+#include "audio/background_player.h"
+#include "services/wake_word.h"
 #include "ssd1306.h"
-#include "wifi_manager.h"
-#include "wake_word.h"
-#include "websocket_client.h"
-#include "stream_player.h"
+#include "faces.h"
+#include <esp_opus_enc.h>
+#include <esp_audio_types.h>
 
 static const char* TAG = "Main";
 
@@ -56,6 +62,7 @@ static bool s_speaking = false;
 static uint64_t s_speech_start_time = 0;
 static char s_ws_url[256] = {0};
 static bool s_ws_display_connected = false;  // Display state for WS
+bool s_is_auto_wake = false;
 
 // ===== WiFi Auto-Connect =====
 #define NUM_KNOWN_NETWORKS 4
@@ -171,6 +178,30 @@ static void save_ws_url(const char* url) {
 
 static void on_wake_detected(const char* wake_word, float confidence);
 
+// ===== LED Control =====
+static void led_init(void) {
+    if (BUILTIN_LED_GPIO != GPIO_NUM_NC) {
+        gpio_config_t io_conf = {};
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pin_bit_mask = (1ULL << BUILTIN_LED_GPIO);
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+        gpio_config(&io_conf);
+        gpio_set_level((gpio_num_t)BUILTIN_LED_GPIO, 0);  // off by default
+        ESP_LOGI(TAG, "LED initialized on GPIO%d", (int)BUILTIN_LED_GPIO);
+    } else {
+        ESP_LOGI(TAG, "No LED GPIO configured (NC)");
+    }
+}
+
+static void led_set(bool on) {
+    if (BUILTIN_LED_GPIO != GPIO_NUM_NC) {
+        gpio_set_level((gpio_num_t)BUILTIN_LED_GPIO, on ? 1 : 0);
+        ESP_LOGI(TAG, "LED %s", on ? "ON" : "OFF");
+    }
+}
+
 // ===== Console Task =====
 static void ConsoleTask(void* arg) {
     char line[128];
@@ -270,6 +301,14 @@ static void ConsoleTask(void* arg) {
             s_va_state = VA_STATE_READY;
             on_wake_detected("manual_wake", 1.0f);
         }
+        else if (strncmp(line, "play ", 5) == 0) {
+            ESP_LOGI(TAG, "Playing background music");
+            BackgroundPlayer::GetInstance()->Play(line + 5);
+        }
+        else if (strcmp(line, "stop") == 0) {
+            ESP_LOGI(TAG, "Stopping background music");
+            BackgroundPlayer::GetInstance()->Stop();
+        }
         else if (strncmp(line, "volume ", 7) == 0) {
             int vol = atoi(line + 7);
             if (vol < 0) vol = 0;
@@ -345,9 +384,6 @@ static void extract_json_value(const char* json, const char* key, char* dest, si
 
 // ===== OLED Display Task =====
 static void DisplayTask(void* arg) {
-    char line[32];
-    int dots = 0;
-    
     while (true) {
         // Clear
         s_oled->Clear();
@@ -356,54 +392,29 @@ static void DisplayTask(void* arg) {
         // Title
         s_oled->DrawText(2, 2, "P8 Voice Asst", 1);
         
-        // State
-        snprintf(line, sizeof(line), "State: %s", va_state_str(s_va_state));
-        s_oled->DrawText(2, 14, line, 1);
-        
-        // If ASR text is available, display it; otherwise, display status info
-        if (s_asr_text[0] != '\0') {
-            s_oled->DrawText(2, 26, "You said:", 1);
-            
-            char line1[22] = "";
-            char line2[22] = "";
-            size_t text_len = strlen(s_asr_text);
-            if (text_len <= 20) {
-                snprintf(line1, sizeof(line1), "%s", s_asr_text);
+        if (s_va_state == VA_STATE_IDLE || s_va_state == VA_STATE_READY) {
+            s_oled->DrawBitmap(48, 16, 32, 32, face_idle, 1);
+            s_oled->DrawText(2, 54, wifi_is_connected() ? "Ready - WiFi OK" : "Scanning...", 1);
+        } else if (s_va_state == VA_STATE_LISTENING) {
+            s_oled->DrawBitmap(48, 16, 32, 32, face_listen, 1);
+            s_oled->DrawText(2, 54, "Listening...", 1);
+        } else if (s_va_state == VA_STATE_THINKING) {
+            s_oled->DrawBitmap(48, 16, 32, 32, face_idle, 1);
+            s_oled->DrawText(2, 54, "Thinking...", 1);
+        } else if (s_va_state == VA_STATE_SPEAKING) {
+            s_oled->DrawBitmap(48, 16, 32, 32, face_speak, 1);
+            if (s_asr_text[0] != '\0') {
+                char tmp[22]; snprintf(tmp, sizeof(tmp), "%.20s", s_asr_text);
+                s_oled->DrawText(2, 54, tmp, 1);
             } else {
-                snprintf(line1, sizeof(line1), "%.20s", s_asr_text);
-                snprintf(line2, sizeof(line2), "%.20s", s_asr_text + 20);
-            }
-            s_oled->DrawText(2, 36, line1, 1);
-            if (line2[0]) {
-                s_oled->DrawText(2, 46, line2, 1);
+                s_oled->DrawText(2, 54, "Speaking...", 1);
             }
         } else {
-            // WiFi status
-            if (wifi_is_connected()) {
-                s_oled->DrawText(2, 26, "WiFi: ON", 1);
-                s_oled->DrawText(2, 36, wifi_get_ip_str(), 1);
-            } else {
-                s_oled->DrawText(2, 26, "WiFi: SCANNING...", 1);
-            }
-            
-            // WS status
-            if (s_ws_display_connected) {
-                s_oled->DrawText(2, 46, "WS: CONNECTED", 1);
-            } else {
-                s_oled->DrawText(2, 46, "WS: DISCONNECT", 1);
-            }
-        }
-        
-        // Animation dots for LISTENING/THINKING
-        if (s_va_state == VA_STATE_LISTENING || s_va_state == VA_STATE_THINKING) {
-            dots = (dots + 1) % 4;
-            for (int i = 0; i < dots; i++) {
-                s_oled->SetPixel(100 + i * 6, 14, 1);
-            }
+            s_oled->DrawBitmap(48, 16, 32, 32, face_idle, 1);
         }
         
         s_oled->Display();
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -411,35 +422,118 @@ static void DisplayTask(void* arg) {
 static void MicCaptureTask(void* arg) {
     ESP_LOGI(TAG, "Mic capture task started");
     
-    constexpr int CHUNK_SIZE = 480;  // ~20ms @ 24kHz
+    // OPUS requires 16000Hz. 60ms = 960 samples
+    constexpr int CHUNK_SIZE = 960;
     int16_t samples[CHUNK_SIZE];
     
+    esp_opus_enc_config_t opus_enc_cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
+    opus_enc_cfg.sample_rate = ESP_AUDIO_SAMPLE_RATE_16K;
+    opus_enc_cfg.channel = ESP_AUDIO_MONO;
+    opus_enc_cfg.bits_per_sample = ESP_AUDIO_BIT16;
+    opus_enc_cfg.bitrate = 24000;
+    opus_enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_60_MS;
+    opus_enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO;
+    opus_enc_cfg.complexity = 0;
+    
+    void* encoder_handle = nullptr;
+    auto ret = esp_opus_enc_open(&opus_enc_cfg, sizeof(esp_opus_enc_config_t), &encoder_handle);
+    if (encoder_handle == nullptr) {
+        ESP_LOGE(TAG, "Failed to create OPUS encoder, error code: %d", ret);
+        s_streaming_audio = false;
+        s_codec->EnableInput(false);
+        s_mic_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    int frame_size = 0;
+    int outbuf_size = 0;
+    ret = esp_opus_enc_get_frame_size(encoder_handle, &frame_size, &outbuf_size);
+    if (ret != 0 || outbuf_size <= 0) {
+        ESP_LOGE(TAG, "Failed to get OPUS frame size: %d, outbuf_size: %d", ret, outbuf_size);
+        esp_opus_enc_close(encoder_handle);
+        s_streaming_audio = false;
+        s_codec->EnableInput(false);
+        s_mic_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    // frame_size from API is in bytes, so frame_size / 2 should be 960
+    int frame_samples = frame_size / sizeof(int16_t);
+    
+    uint8_t opus_buf[1500]; // OPUS max packet size is 1500 bytes
+
     int64_t start_time = esp_timer_get_time() / 1000;
+    extern bool s_is_auto_wake;
     
     while (s_streaming_audio) {
-        // Push-to-talk: stop capturing if button is released after 300ms debounce window
-        if (esp_timer_get_time() / 1000 - start_time > 300) {
-            if (gpio_get_level((gpio_num_t)BOOT_BUTTON_GPIO) == 0) {
-                ESP_LOGI(TAG, "Button released, stopping capture");
+        int64_t elapsed = esp_timer_get_time() / 1000 - start_time;
+        
+        if (!s_is_auto_wake) {
+            // Push-to-talk: stop capturing if button is released after 300ms debounce window
+            if (elapsed > 300) {
+                if (gpio_get_level((gpio_num_t)BOOT_BUTTON_GPIO) == !WAKE_BUTTON_ACTIVE_HIGH) {
+                    ESP_LOGI(TAG, "Button released, stopping capture");
+                    s_streaming_audio = false;
+                    s_va_state = VA_STATE_THINKING;
+                    ws_send_text("{\"type\":\"listen\",\"state\":\"stop\"}");
+                    break;
+                }
+            }
+        } else {
+            // Continuous mode: stop capturing after 6 seconds
+            if (elapsed > 6000) {
+                ESP_LOGI(TAG, "Continuous mode timeout (6s), stopping capture");
                 s_streaming_audio = false;
                 s_va_state = VA_STATE_THINKING;
-                PlayBeep(s_codec, 1200, 80, 6000);
-                ws_send_text("{\"state\":\"stop_capture\"}");
+                ws_send_text("{\"type\":\"listen\",\"state\":\"stop\"}");
                 break;
             }
         }
         
-        int n = s_codec->ReadSamples(samples, CHUNK_SIZE);
-        if (n > 0 && ws_is_connected()) {
-            if (ws_send_audio(samples, n) != ESP_OK) {
-                ESP_LOGE(TAG, "Audio send failed, stopping mic capture");
-                s_streaming_audio = false;
-                break;
+        // Read 1 frame (960 samples)
+        int n = s_codec->ReadSamples(samples, frame_samples);
+        if (n == frame_samples && ws_is_connected()) {
+            // Debug: compute RMS every 10 frames to check mic level
+            static int dbg_frame_count = 0;
+            dbg_frame_count++;
+            if (dbg_frame_count % 10 == 0) {
+                int64_t sum = 0;
+                for (int i = 0; i < n; i++) sum += (int64_t)samples[i] * samples[i];
+                int rms = (int)sqrt((double)sum / n);
+                ESP_LOGI(TAG, "Mic frame #%d: RMS=%d, sending OPUS...", dbg_frame_count, rms);
             }
+            
+            esp_audio_enc_in_frame_t in = {};
+            esp_audio_enc_out_frame_t out = {};
+            in.buffer = (uint8_t *)samples;
+            in.len = (uint32_t)(frame_samples * sizeof(int16_t));
+            out.buffer = opus_buf;
+            out.len = outbuf_size;
+            out.encoded_bytes = 0;
+            
+            ret = esp_opus_enc_process(encoder_handle, &in, &out);
+            if (ret == 0) { // ESP_AUDIO_ERR_OK
+                // Send Opus binary packet
+                extern esp_err_t ws_send_binary(const uint8_t* data, size_t len); // Use the existing function from websocket_client
+                if (ws_send_binary(out.buffer, out.encoded_bytes) != ESP_OK) {
+                    ESP_LOGE(TAG, "Audio send failed, stopping mic capture");
+                    s_streaming_audio = false;
+                    break;
+                }
+            } else {
+                ESP_LOGE(TAG, "OPUS encode failed: %d", ret);
+            }
+        } else if (n > 0) {
+            // Did not read full frame, just skip
+            vTaskDelay(pdMS_TO_TICKS(5));
         } else {
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
+    
+    esp_opus_enc_close(encoder_handle);
     
     s_codec->EnableInput(false);
     ESP_LOGI(TAG, "Mic capture task stopped");
@@ -476,13 +570,22 @@ static void on_wake_detected(const char* wake_word, float confidence) {
         s_va_state = VA_STATE_LISTENING;
         s_streaming_audio = true;
         s_speech_start_time = esp_timer_get_time() / 1000;
+        s_asr_text[0] = '\0';
+
+        // Check if this is auto wake
+        if (wake_word && strcmp(wake_word, "auto_wake") == 0) {
+            s_is_auto_wake = true;
+        } else {
+            s_is_auto_wake = false;
+        }
         
         // Play listening beep
-        PlayBeep(s_codec, 1000, 100, 6000);
+        // PlayBeep(s_codec, 1000, 100, 2000);
         
         // Start mic capture
+        ws_send_text("{\"type\":\"listen\",\"state\":\"start\",\"mode\":\"auto\"}");
         s_codec->EnableInput(true);
-        if (xTaskCreatePinnedToCore(MicCaptureTask, "mic", 4096, NULL, 6, &s_mic_task, 1) != pdPASS) {
+        if (xTaskCreatePinnedToCore(MicCaptureTask, "mic", 32768, NULL, 6, &s_mic_task, 1) != pdPASS) {
             ESP_LOGE(TAG, "Failed to start mic task");
             s_codec->EnableInput(false);
             s_streaming_audio = false;
@@ -493,12 +596,18 @@ static void on_wake_detected(const char* wake_word, float confidence) {
     }
 }
 
+// Flag to check if we should stop continuous mode
+static bool s_stop_continuous = false;
+
 // ===== WebSocket Text Callback =====
 static void on_ws_text(const char* text) {
     ESP_LOGI(TAG, "WS Text: %s", text);
     
     // Parse JSON-like responses from server
-    if (strstr(text, "\"action\":\"startSpeaking\"") || strstr(text, "\"action\":\"speak\"")) {
+    if (strstr(text, "\"type\":\"hello\"")) {
+        ESP_LOGI(TAG, "Server accepted hello message");
+    }
+    else if (strstr(text, "\"type\":\"tts\"") && strstr(text, "\"state\":\"start\"")) {
         // Server signals start of speech
         s_streaming_audio = false;
         s_speaking = true;
@@ -511,47 +620,56 @@ static void on_ws_text(const char* text) {
         }
         
         // Play beep
-        PlayBeep(s_codec, 880, 80, 6000);
+        PlayBeep(s_codec, 880, 80, 2000);
     }
-    else if (strstr(text, "\"action\":\"stopSpeaking\"") || strstr(text, "\"action\":\"stop\"")) {
+    else if (strstr(text, "\"type\":\"tts\"") && strstr(text, "\"state\":\"stop\"")) {
         // Server signals end of speech
         s_speaking = false;
-        s_va_state = VA_STATE_READY;
         player_stop();
         
         // Play completion beep
-        PlayBeep(s_codec, 1320, 80, 6000);
+        PlayBeep(s_codec, 1320, 80, 2000);
+        BackgroundPlayer::GetInstance()->Resume();
+        
+        // Trò chuyện liên tục: tự động bật Micro lại nếu không bị yêu cầu dừng
+        if (!s_stop_continuous) {
+            ESP_LOGI(TAG, "Continuous mode: auto waking up...");
+            s_va_state = VA_STATE_READY;
+            on_wake_detected("auto_wake", 1.0f);
+        } else {
+            ESP_LOGI(TAG, "Continuous mode stopped by AI.");
+            s_va_state = VA_STATE_READY;
+            s_stop_continuous = false; // reset flag
+        }
     }
-    else if (strstr(text, "\"action\":\"listening\"")) {
-        // Server ready for audio - clear previous text
-        s_asr_text[0] = '\0';
-        s_streaming_audio = true;
-        s_va_state = VA_STATE_LISTENING;
-    }
-    else if (strstr(text, "\"action\":\"thinking\"")) {
-        // Server processing
-        s_streaming_audio = false;
-        s_va_state = VA_STATE_THINKING;
-    }
-    else if (strstr(text, "\"action\":\"error\"")) {
-        ESP_LOGW(TAG, "Server error action: %s", text);
-        s_va_state = VA_STATE_ERROR;
-        player_stop();
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        s_va_state = VA_STATE_READY;
-    }
-    else if (strstr(text, "\"type\":\"asr_result\"")) {
-        ESP_LOGI(TAG, "ASR result: %s", text);
+    else if (strstr(text, "\"type\":\"stt\"")) {
+        ESP_LOGI(TAG, "STT result: %s", text);
         extract_json_value(text, "\"text\"", s_asr_text, sizeof(s_asr_text));
         if (s_va_state == VA_STATE_LISTENING) {
             s_streaming_audio = false;
             s_va_state = VA_STATE_THINKING;
         }
     }
-    else if (strstr(text, "\"type\":\"llm_response\"")) {
+    else if (strstr(text, "\"type\":\"llm\"")) {
         ESP_LOGI(TAG, "LLM result: %s", text);
         if (s_va_state == VA_STATE_THINKING) {
             s_va_state = VA_STATE_READY;
+        }
+    }
+    else if (strstr(text, "\"type\":\"mcp\"") || strstr(text, "\"action\":")) {
+        // Handle MCP function calling
+        if (strstr(text, "\"name\":\"control_led\"") || strstr(text, "\"action\":\"control_led\"")) {
+            if (strstr(text, "\"state\":\"on\"") || strstr(text, "\"on\"")) {
+                led_set(true);
+                ESP_LOGI(TAG, "LED turned ON by server MCP command");
+            } else if (strstr(text, "\"state\":\"off\"") || strstr(text, "\"off\"")) {
+                led_set(false);
+                ESP_LOGI(TAG, "LED turned OFF by server MCP command");
+            }
+        }
+        else if (strstr(text, "\"name\":\"stop_conversation\"") || strstr(text, "\"action\":\"stop_conversation\"")) {
+            ESP_LOGI(TAG, "AI requested to stop conversation");
+            s_stop_continuous = true;
         }
     }
     else if (strncmp(text, "http://", 7) == 0 || strncmp(text, "https://", 8) == 0) {
@@ -575,13 +693,17 @@ static void on_ws_connected(void) {
     s_ws_display_connected = true;  // Update display state
     
     // Play connection beep
-    PlayBeep(s_codec, 880, 100, 8000);
+    PlayBeep(s_codec, 880, 100, 2000);
     vTaskDelay(pdMS_TO_TICKS(80));
-    PlayBeep(s_codec, 1320, 100, 8000);
+    PlayBeep(s_codec, 1320, 100, 2000);
     
     if (s_va_state == VA_STATE_IDLE) {
         s_va_state = VA_STATE_READY;
     }
+
+    // Send Xiaozhi-compatible hello message
+    const char* hello_msg = "{\"type\":\"hello\",\"version\":1,\"transport\":\"websocket\",\"audio_params\":{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_duration\":60},\"features\":{\"mcp\":true}}";
+    ws_send_text(hello_msg);
 }
 
 // ===== WebSocket Disconnected Callback =====
@@ -617,13 +739,15 @@ extern "C" void app_main(void) {
     
     // Load stored WebSocket URL from NVS
     load_ws_url();
-    
     ESP_LOGI(TAG, "=== P8 Voice Assistant ===");
     
     // Initialize board (I2C, I2S)
     static Esp32S3Wroom1Board board;
     s_board = &board;
     board.Initialize();
+    
+    // Initialize LED GPIO for control_led tool
+    led_init();
     
     // Initialize OLED
     static Ssd1306 oled(board.GetI2CBus());
@@ -632,11 +756,12 @@ extern "C" void app_main(void) {
     oled.Clear();
     oled.DrawRect(0, 0, 128, 64, 1);
     oled.DrawText(8, 6, "P8 Voice Asst", 1);
-    oled.DrawText(8, 22, "Initializing...", 1);
+    oled.DrawBitmap(48, 16, 32, 32, face_idle, 1);
+    oled.DrawText(8, 54, "Initializing...", 1);
     oled.Display();
     
     // Initialize audio codec
-    static Esp32S3AudioCodec codec(board.GetSpeakerHandle(), board.GetMicHandle(), 24000, 24000);
+    static Esp32S3AudioCodec codec(board.GetSpeakerHandle(), board.GetMicHandle(), AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE);
     s_codec = &codec;
     codec.SetOutputVolume(70);
     codec.EnableInput(false);
@@ -644,9 +769,9 @@ extern "C" void app_main(void) {
     codec.Start();
     
     // Play startup beep
-    PlayBeep(&codec, 880, 150, 8000);
+    PlayBeep(&codec, 880, 150, 2000);
     vTaskDelay(pdMS_TO_TICKS(130));
-    PlayBeep(&codec, 1320, 150, 8000);
+    PlayBeep(&codec, 1320, 150, 2000);
     
     // Initialize WiFi
     wifi_init();
@@ -690,6 +815,9 @@ extern "C" void app_main(void) {
     // Initialize audio player
     player_init(&codec);
     player_set_volume(70);
+    
+    // Initialize background player
+    BackgroundPlayer::GetInstance()->Init(&codec);
     
     // Start display task
     xTaskCreatePinnedToCore(DisplayTask, "display", 4096, NULL, 2, &s_display_task, 0);

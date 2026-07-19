@@ -279,6 +279,11 @@ class AIServer:
                     },
                     "required": ["seconds"]
                 }
+            },
+            {
+                "name": "stop_conversation",
+                "description": "Tắt micro và kết thúc cuộc trò chuyện liên tục khi người dùng yêu cầu ngưng hoặc chào tạm biệt.",
+                "parameters": {"type": "OBJECT", "properties": {}}
             }
         ]
     }]
@@ -326,6 +331,11 @@ class AIServer:
                 else:
                     time_str = f"{seconds} giây"
                 return f"Đã đặt hẹn giờ {label} trong {time_str}."
+                
+            elif name == "stop_conversation":
+                cmd = json.dumps({"action": "stop_conversation"})
+                await websocket.send(cmd)
+                return "Đã ngắt micro của thiết bị."
 
             else:
                 return f"Công cụ '{name}' chưa được cài đặt."

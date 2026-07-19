@@ -21,14 +21,14 @@
 // ============================================================
 // Audio sample rates (Hz)
 // ============================================================
-#define AUDIO_INPUT_SAMPLE_RATE    24000
+#define AUDIO_INPUT_SAMPLE_RATE    16000
 #define AUDIO_OUTPUT_SAMPLE_RATE   24000
 
 // ============================================================
 // Buttons
 // ============================================================
-// Wake button - TTP223 active-HIGH on GPIO47
-#define BOOT_BUTTON_GPIO           GPIO_NUM_47  // Note: tên "BOOT" từ xiaozhi convention, GPIO47 = wake
+// Wake button - External button on GPIO47 (Active-HIGH)
+#define BOOT_BUTTON_GPIO           GPIO_NUM_47
 #define WAKE_BUTTON_ACTIVE_HIGH    1
 
 // Reset SSID - BOOT button on GPIO0 (active-LOW long-press 5s)
@@ -46,10 +46,9 @@
 #define DISPLAY_MIRROR_Y           true
 #define DISPLAY_I2C_NUM            I2C_NUM_0
 
-// ============================================================
-// No status LED
-// ============================================================
-#define BUILTIN_LED_GPIO           GPIO_NUM_NC
+// LED indicator - GPIO48 (built-in LED on ESP32-S3-WROOM-1 boards)
+// Change to GPIO_NUM_NC if no LED is wired
+#define BUILTIN_LED_GPIO           GPIO_NUM_48
 
 // ============================================================
 // Wake word off, dùng button
@@ -58,7 +57,7 @@
 #define CONFIG_WAKE_WORD_DISABLED  1
 
 // ============================================================
-// Opus frame (60ms @ 24kHz = 1440 samples)
+// Opus frame (60ms @ 16kHz = 960 samples)
 // ============================================================
 #define AUDIO_OPUS_FRAME_DURATION_MS   60
-#define AUDIO_OPUS_FRAME_SIZE_SAMPLES  1440
+#define AUDIO_OPUS_FRAME_SIZE_SAMPLES  960
