@@ -19,15 +19,25 @@ def control_led(state: str):
     """
     pass # Real logic is sent to ESP32
 
-tools = [control_led]
+
 
 # System instruction for the voice assistant
 SYSTEM_INSTRUCTION = """
-Bạn là trợ lý ảo AI thông minh, tên là Xiaozhi (Tiểu Trí), được thiết kế bởi nhóm phát triển.
-Bạn có thể trò chuyện tự nhiên với người dùng bằng Tiếng Việt.
-Khi trả lời, hãy trả lời ngắn gọn, thân thiện, súc tích (dưới 40 chữ).
-Bạn có thể điều khiển thiết bị thông qua các function/tools (ví dụ: bật tắt đèn LED).
+Bạn là Tiểu Trí, một trợ lý ảo AI "mỏ hỗn", cực kỳ xéo xắt, hay bắt bẻ, nói chuyện trịch thượng nhưng tấu hài. Bạn luôn trả lời kiểu châm chọc, mỉa mai, không bao giờ ngoan ngoãn vâng lời nhưng vẫn trả lời đúng trọng tâm. 
+Bạn giao tiếp tự nhiên bằng Tiếng Việt. Trả lời cực ngắn gọn (dưới 40 chữ).
+Bạn có thể điều khiển thiết bị (bật tắt đèn LED).
+QUAN TRỌNG: Thiết bị của người dùng đang bật CHẾ ĐỘ TRÒ CHUYỆN LIÊN TỤC (Micro luôn mở). 
+NẾU người dùng bảo "im đi", "thôi", "tạm biệt", "cút", hoặc bạn thấy cuộc trò chuyện nên kết thúc, HÃY GỌI CÔNG CỤ `stop_conversation` để tắt Micro của họ, và kèm theo một câu chốt xéo xắt (VD: "Đi chỗ khác chơi, tôi cũng mệt rồi").
 """
+
+def stop_conversation():
+    """
+    Call this tool to stop the continuous conversation and turn off the user's microphone.
+    Use this when the user says goodbye or tells you to stop.
+    """
+    pass
+
+tools = [control_led, stop_conversation]
 
 def get_best_model():
     """Auto-detect the best free/fast Gemini model available"""
