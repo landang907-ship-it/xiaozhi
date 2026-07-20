@@ -26,7 +26,7 @@ async def encode_mp3_to_opus_packets(mp3_path):
         # Create an Opus encoder
         opus_encoder = av.CodecContext.create("opus", "w")
         opus_encoder.sample_rate = 16000
-        opus_encoder.channels = 1
+        opus_encoder.layout = 'mono'
         opus_encoder.format = 's16'
         
         # Resampler if needed (MP3 from edge-tts is usually 24kHz or 48kHz)
