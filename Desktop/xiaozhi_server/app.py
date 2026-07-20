@@ -137,10 +137,11 @@ async def handler(websocket):
                                 opus_packets = await encode_mp3_to_opus_packets(mp3_path)
                                 os.remove(mp3_path)
                                 
-                                # Send audio packets
-                                for packet in opus_packets:
+                                # Send audio packets (each is 20ms, so 3 packets = 60ms)
+                                for i, packet in enumerate(opus_packets):
                                     await websocket.send(packet)
-                                    await asyncio.sleep(0.05) # simulate 60ms streaming
+                                    if i % 3 == 2:
+                                        await asyncio.sleep(0.05) # stream 60ms audio every 50ms
                                 
                                 await websocket.send(json.dumps({"type": "tts", "state": "stop"}))
                                 
