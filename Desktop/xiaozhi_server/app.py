@@ -74,7 +74,7 @@ async def handler(websocket):
     is_listening = False
     opus_decoder = av.CodecContext.create('opus', 'r')
     opus_decoder.sample_rate = 16000
-    opus_decoder.channels = 1
+    opus_decoder.layout = 'mono'
     
     pcm_buffer = bytearray()
     
@@ -97,7 +97,7 @@ async def handler(websocket):
                             pcm_buffer = bytearray()
                             opus_decoder = av.CodecContext.create('opus', 'r')
                             opus_decoder.sample_rate = 16000
-                            opus_decoder.channels = 1
+                            opus_decoder.layout = 'mono'
                         elif state == "stop":
                             logger.info("Stopped listening (VAD stop)")
                             is_listening = False
