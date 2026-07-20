@@ -140,7 +140,7 @@ async def handler(websocket):
                                 # Send audio packets
                                 for packet in opus_packets:
                                     await websocket.send(packet)
-                                    await asyncio.sleep(0.02) # simulate 20ms streaming
+                                    await asyncio.sleep(0.05) # simulate 60ms streaming
                                 
                                 await websocket.send(json.dumps({"type": "tts", "state": "stop"}))
                                 
