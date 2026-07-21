@@ -67,6 +67,7 @@ async def websocket_handler(request):
     
     is_listening = False
     opus_decoder = None
+    decoder_resampler = None
     pcm_buffer = bytearray()
     last_audio_time = 0
     is_processing = False
@@ -84,7 +85,7 @@ async def websocket_handler(request):
         logger.info(f"Processing recorded audio ({len(buffer_to_process)} bytes)...")
         
         try:
-            # Save PCM to WAV
+            # Save PCM to WAV (16kHz, 16-bit Mono)
             fd, wav_path = tempfile.mkstemp(suffix=".wav")
             with wave.open(os.fdopen(fd, 'wb'), 'wb') as wf:
                 wf.setnchannels(1)
@@ -168,6 +169,7 @@ async def websocket_handler(request):
                             opus_decoder = av.CodecContext.create('opus', 'r')
                             opus_decoder.sample_rate = 16000
                             opus_decoder.layout = 'mono'
+                            decoder_resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
                             last_audio_time = time.time()
                         elif state == "stop":
                             logger.info("Stopped listening (VAD stop)")
@@ -183,11 +185,16 @@ async def websocket_handler(request):
                     opus_decoder = av.CodecContext.create('opus', 'r')
                     opus_decoder.sample_rate = 16000
                     opus_decoder.layout = 'mono'
+                if decoder_resampler is None:
+                    decoder_resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
+                    
                 try:
                     packet = av.Packet(message.data)
                     frames = opus_decoder.decode(packet)
                     for frame in frames:
-                        pcm_buffer.extend(frame.to_ndarray().tobytes())
+                        r_frames = decoder_resampler.resample(frame)
+                        for rf in r_frames:
+                            pcm_buffer.extend(rf.to_ndarray().tobytes())
                 except Exception as e:
                     logger.error(f"Opus decode error: {e}")
                     
