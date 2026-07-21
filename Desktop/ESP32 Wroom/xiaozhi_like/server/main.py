@@ -5,7 +5,7 @@ import av
 import wave
 import tempfile
 import os
-from websockets.server import serve
+from aiohttp import web
 
 from ai_handler import generate_response
 from tts_handler import generate_tts
@@ -66,7 +66,10 @@ async def encode_mp3_to_opus_packets(mp3_path):
         
     return packets
 
-async def handler(websocket):
+async def websocket_handler(request):
+    websocket = web.WebSocketResponse()
+    await websocket.prepare(request)
+    
     client_id = id(websocket)
     logger.info(f"Client connected: {client_id}")
     
@@ -80,14 +83,14 @@ async def handler(websocket):
     
     try:
         async for message in websocket:
-            if isinstance(message, str):
+            if message.type == web.WSMsgType.TEXT:
                 try:
-                    data = json.loads(message)
+                    data = json.loads(message.data)
                     msg_type = data.get("type")
                     
                     if msg_type == "hello":
                         logger.info("Received hello from ESP32")
-                        await websocket.send(json.dumps({"type": "hello"}))
+                        await websocket.send_str(json.dumps({"type": "hello"}))
                         
                     elif msg_type == "listen":
                         state = data.get("state")
@@ -112,26 +115,26 @@ async def handler(websocket):
                                     wf.writeframes(pcm_buffer)
                                 
                                 # Send to Gemini
-                                await websocket.send(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
+                                await websocket.send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
                                 logger.info("Sending to Gemini...")
                                 
                                 text_resp, func_calls = await generate_response(wav_path)
                                 os.remove(wav_path)
                                 
                                 # Send LLM response text
-                                await websocket.send(json.dumps({"type": "llm", "text": text_resp}))
+                                await websocket.send_str(json.dumps({"type": "llm", "text": text_resp}))
                                 
                                 # Handle Function Calls (MCP)
                                 for fc in func_calls:
                                     logger.info(f"Function Call: {fc}")
-                                    await websocket.send(json.dumps({
+                                    await websocket.send_str(json.dumps({
                                         "type": "mcp",
                                         "name": fc["name"],
                                         "arguments": fc["arguments"]
                                     }))
                                 
                                 # Generate TTS
-                                await websocket.send(json.dumps({"type": "tts", "state": "start"}))
+                                await websocket.send_str(json.dumps({"type": "tts", "state": "start"}))
                                 
                                 mp3_path = await generate_tts(text_resp)
                                 opus_packets = await encode_mp3_to_opus_packets(mp3_path)
@@ -139,18 +142,18 @@ async def handler(websocket):
                                 
                                 # Send audio packets (each is 20ms, so 3 packets = 60ms)
                                 for i, packet in enumerate(opus_packets):
-                                    await websocket.send(packet)
+                                    await websocket.send_bytes(packet)
                                     if i % 3 == 2:
                                         await asyncio.sleep(0.05) # stream 60ms audio every 50ms
                                 
-                                await websocket.send(json.dumps({"type": "tts", "state": "stop"}))
+                                await websocket.send_str(json.dumps({"type": "tts", "state": "stop"}))
                                 
                 except json.JSONDecodeError:
                     pass
-            elif isinstance(message, bytes):
+            elif message.type == web.WSMsgType.BINARY:
                 if is_listening:
                     try:
-                        packet = av.Packet(message)
+                        packet = av.Packet(message.data)
                         frames = opus_decoder.decode(packet)
                         for frame in frames:
                             pcm_buffer.extend(frame.to_ndarray().tobytes())
@@ -161,11 +164,11 @@ async def handler(websocket):
         logger.error(f"Connection error: {e}")
     finally:
         logger.info(f"Client disconnected: {client_id}")
+    
+    return websocket
 
-async def main():
-    async with serve(handler, "0.0.0.0", 8080):
-        logger.info("Xiaozhi Python Server started on ws://0.0.0.0:8080")
-        await asyncio.Future()  # run forever
+app = web.Application()
+app.router.add_get('/', websocket_handler)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    web.run_app(app, host='0.0.0.0', port=8080)
