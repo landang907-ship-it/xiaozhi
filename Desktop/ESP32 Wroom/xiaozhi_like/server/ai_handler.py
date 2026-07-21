@@ -25,8 +25,8 @@ if api_key:
     genai.configure(api_key=api_key)
 
 SYSTEM_INSTRUCTION = """
-Bạn là Tiểu Trí, một trợ lý ảo AI thông minh, thân thiện, trả lời ngắn gọn và hữu ích.
-Bạn giao tiếp tự nhiên bằng Tiếng Việt. Trả lời cực ngắn gọn (dưới 40 chữ).
+Bạn là Tiểu Trí, trợ lý AI siêu nhanh.
+BẮT BUỘC: Trả lời Tiếng Việt cực kỳ ngắn gọn (dưới 15 từ). Càng ngắn càng tốt để phản hồi tức thì.
 """
 
 def control_led(state: str):
@@ -40,38 +40,38 @@ def stop_conversation():
 tools = [control_led, stop_conversation]
 
 def get_best_model():
-    """Auto-detect the best available Gemini model"""
+    """Auto-detect the fastest available Gemini model for Voice AI"""
     try:
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         logger.info(f"Available Gemini models: {available_models}")
         
+        # Prioritize 2.0 Flash Lite & 2.0 Flash for lowest latency (~100-200ms)
         preferred = [
-            "models/gemini-2.5-flash",
+            "models/gemini-2.0-flash-lite",
+            "models/gemini-2.0-flash-lite-001",
             "models/gemini-2.0-flash",
-            "models/gemini-1.5-flash",
-            "models/gemini-flash-latest",
-            "models/gemini-2.5-flash-lite",
-            "models/gemini-3.5-flash"
+            "models/gemini-2.0-flash-001",
+            "models/gemini-2.5-flash",
+            "models/gemini-flash-latest"
         ]
         
         for p in preferred:
             if p in available_models:
-                logger.info(f"✅ Auto-selected Gemini Model: {p}")
+                logger.info(f"⚡ Selected Ultra-Fast Model: {p}")
                 return p
                 
         for m in available_models:
-            if "flash" in m.lower():
-                logger.info(f"✅ Auto-selected Gemini Model: {m}")
+            if "lite" in m.lower() or "flash" in m.lower():
+                logger.info(f"⚡ Selected Fast Model: {m}")
                 return m
                 
         if available_models:
-            logger.info(f"✅ Auto-selected Gemini Model: {available_models[0]}")
             return available_models[0]
             
     except Exception as e:
-        logger.warning(f"Could not auto-detect Gemini models ({e}). Using default models/gemini-2.5-flash.")
+        logger.warning(f"Could not auto-detect Gemini models ({e}). Using default gemini-2.0-flash-lite.")
         
-    return "models/gemini-2.5-flash"
+    return "models/gemini-2.0-flash-lite"
 
 try:
     model_name = get_best_model()
@@ -82,11 +82,11 @@ try:
     )
 except Exception as e:
     logger.error(f"Failed to create GenerativeModel: {e}")
-    model = genai.GenerativeModel(model_name="models/gemini-2.5-flash")
+    model = genai.GenerativeModel(model_name="models/gemini-2.0-flash-lite")
 
 async def generate_response(audio_file_path: str):
     """
-    Send audio to Gemini and get text + function calls.
+    Send audio to Gemini Ultra-Fast model and get text + function calls.
     """
     try:
         with open(audio_file_path, "rb") as f:
@@ -94,7 +94,7 @@ async def generate_response(audio_file_path: str):
             
         prompt = [
             {"mime_type": "audio/wav", "data": audio_data},
-            "Trả lời bằng tiếng Việt, cực kỳ ngắn gọn dưới 30 từ."
+            "Trả lời ngắn gọn dưới 15 từ."
         ]
         
         from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -124,10 +124,10 @@ async def generate_response(audio_file_path: str):
             text_resp = response.text
             
         if not text_resp:
-            text_resp = "Tôi đã nghe bạn nói."
+            text_resp = "Tôi đã nghe bạn."
             
         return text_resp, function_calls
         
     except Exception as e:
         logger.error(f"Error calling Gemini API: {e}", exc_info=True)
-        return "Xin lỗi, tôi không nghe rõ. Bạn nói lại được không?", []
+        return "Tôi nghe chưa rõ, bạn nói lại nhé?", []
