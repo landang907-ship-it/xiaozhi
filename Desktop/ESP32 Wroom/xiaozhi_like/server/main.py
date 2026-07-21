@@ -135,7 +135,7 @@ async def websocket_handler(request):
             if os.path.exists(mp3_path):
                 os.remove(mp3_path)
             
-            # Now send TTS start and text sentence
+            # Send TTS start and text sentence
             await safe_send_str(json.dumps({"type": "tts", "state": "sentence_start", "text": text_resp}))
             await safe_send_str(json.dumps({"type": "tts", "state": "start"}))
             
@@ -176,8 +176,19 @@ async def websocket_handler(request):
                     msg_type = data.get("type")
                     
                     if msg_type == "hello":
-                        logger.info("Received hello from ESP32")
-                        await safe_send_str(json.dumps({"type": "hello"}))
+                        logger.info("Received hello from ESP32, replying with audio_params (16000Hz)")
+                        hello_response = {
+                            "type": "hello",
+                            "version": 1,
+                            "transport": "websocket",
+                            "audio_params": {
+                                "format": "opus",
+                                "sample_rate": 16000,
+                                "channels": 1,
+                                "frame_duration": 60
+                            }
+                        }
+                        await safe_send_str(json.dumps(hello_response))
                         
                     elif msg_type == "listen":
                         state = data.get("state")
