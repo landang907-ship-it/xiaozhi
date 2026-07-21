@@ -9,11 +9,11 @@ import time
 import numpy as np
 from aiohttp import web
 
-from ai_handler import generate_response
-from tts_handler import generate_tts
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Xiaozhi-Server")
+
+from ai_handler import generate_response
+from tts_handler import generate_tts
 
 async def encode_mp3_to_opus_packets(mp3_path):
     """
@@ -59,7 +59,7 @@ async def encode_mp3_to_opus_packets(mp3_path):
     return packets
 
 async def websocket_handler(request):
-    websocket = web.WebSocketResponse()
+    websocket = web.WebSocketResponse(heartbeat=20.0)
     await websocket.prepare(request)
     
     client_id = id(websocket)
@@ -72,6 +72,20 @@ async def websocket_handler(request):
     last_audio_time = 0
     is_processing = False
     
+    async def safe_send_str(payload: str):
+        if not websocket.closed:
+            try:
+                await websocket.send_str(payload)
+            except Exception as e:
+                logger.warning(f"Could not send text: {e}")
+
+    async def safe_send_bytes(payload: bytes):
+        if not websocket.closed:
+            try:
+                await websocket.send_bytes(payload)
+            except Exception as e:
+                logger.warning(f"Could not send bytes: {e}")
+
     async def process_audio():
         nonlocal is_listening, pcm_buffer, is_processing
         if is_processing or len(pcm_buffer) == 0:
@@ -94,7 +108,7 @@ async def websocket_handler(request):
                 wf.writeframes(buffer_to_process)
             
             # Send STT thinking status
-            await websocket.send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
+            await safe_send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
             logger.info("Sending audio to Gemini AI...")
             
             text_resp, func_calls = await generate_response(wav_path)
@@ -104,19 +118,19 @@ async def websocket_handler(request):
             logger.info(f"Gemini Response: {text_resp}")
             
             # Send LLM text response
-            await websocket.send_str(json.dumps({"type": "llm", "text": text_resp}))
+            await safe_send_str(json.dumps({"type": "llm", "text": text_resp}))
             
             # Handle MCP Function Calls
             for fc in func_calls:
                 logger.info(f"Function Call: {fc}")
-                await websocket.send_str(json.dumps({
+                await safe_send_str(json.dumps({
                     "type": "mcp",
                     "name": fc["name"],
                     "arguments": fc["arguments"]
                 }))
             
             # Generate TTS & Stream Opus back
-            await websocket.send_str(json.dumps({"type": "tts", "state": "start"}))
+            await safe_send_str(json.dumps({"type": "tts", "state": "start"}))
             
             mp3_path = await generate_tts(text_resp)
             opus_packets = await encode_mp3_to_opus_packets(mp3_path)
@@ -125,11 +139,14 @@ async def websocket_handler(request):
             
             logger.info(f"Streaming {len(opus_packets)} Opus packets to ESP32...")
             for i, packet in enumerate(opus_packets):
-                await websocket.send_bytes(packet)
+                if websocket.closed:
+                    logger.warning("Websocket closed during audio streaming, aborting stream.")
+                    break
+                await safe_send_bytes(packet)
                 if i % 3 == 2:
                     await asyncio.sleep(0.05) # 60ms audio every 50ms
             
-            await websocket.send_str(json.dumps({"type": "tts", "state": "stop"}))
+            await safe_send_str(json.dumps({"type": "tts", "state": "stop"}))
             logger.info("Finished streaming response to ESP32")
             
         except Exception as e:
@@ -158,7 +175,7 @@ async def websocket_handler(request):
                     
                     if msg_type == "hello":
                         logger.info("Received hello from ESP32")
-                        await websocket.send_str(json.dumps({"type": "hello"}))
+                        await safe_send_str(json.dumps({"type": "hello"}))
                         
                     elif msg_type == "listen":
                         state = data.get("state")
