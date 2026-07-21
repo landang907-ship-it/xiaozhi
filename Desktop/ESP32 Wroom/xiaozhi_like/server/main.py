@@ -146,7 +146,7 @@ async def websocket_handler(request):
                     break
                 await safe_send_bytes(packet)
                 if i % 3 == 2:
-                    await asyncio.sleep(0.05) # 60ms audio every 50ms
+                    await asyncio.sleep(0.04) # 60ms audio every 40ms for faster stream
             
             await safe_send_str(json.dumps({"type": "tts", "state": "stop"}))
             logger.info("Finished streaming response to ESP32")
@@ -157,13 +157,13 @@ async def websocket_handler(request):
             is_processing = False
 
     async def silence_checker():
-        """Auto-detect silence after user stops speaking for 1.2 seconds"""
+        """Ultra-fast silence detection after user stops speaking for 0.5 seconds"""
         nonlocal last_audio_time
         while True:
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
             if is_listening and len(pcm_buffer) > 0 and not is_processing:
-                if time.time() - last_audio_time > 1.2:
-                    logger.info("Silence detected (1.2s timeout). Triggering AI processing...")
+                if time.time() - last_audio_time > 0.5: # Reduced from 1.2s to 0.5s for instant response
+                    logger.info("Silence detected (0.5s timeout). Triggering AI processing...")
                     asyncio.create_task(process_audio())
                     
     checker_task = asyncio.create_task(silence_checker())
