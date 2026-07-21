@@ -5,6 +5,8 @@ import av
 import wave
 import tempfile
 import os
+import time
+import numpy as np
 from aiohttp import web
 
 from ai_handler import generate_response
@@ -19,21 +21,15 @@ async def encode_mp3_to_opus_packets(mp3_path):
     """
     packets = []
     try:
-        # Open the MP3 file
         container = av.open(mp3_path)
         audio_stream = container.streams.audio[0]
         
-        # Create an Opus encoder
         opus_encoder = av.CodecContext.create("opus", "w")
         opus_encoder.sample_rate = 16000
         opus_encoder.layout = 'mono'
         opus_encoder.format = 's16'
         
-        # Resampler if needed (MP3 from edge-tts is usually 24kHz or 48kHz)
         resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
-        
-        # 60ms frames at 16000Hz = 960 samples per frame
-        # We need to accumulate samples before encoding
         accumulated_samples = bytearray()
         
         for frame in container.decode(audio_stream):
@@ -42,13 +38,10 @@ async def encode_mp3_to_opus_packets(mp3_path):
             for r_frame in resampled_frames:
                 accumulated_samples.extend(r_frame.to_ndarray().tobytes())
                 
-                # 960 samples * 2 bytes/sample (s16) = 1920 bytes
-                while len(accumulated_samples) >= 1920:
+                while len(accumulated_samples) >= 1920: # 960 samples * 2 bytes = 60ms
                     chunk = accumulated_samples[:1920]
                     accumulated_samples = accumulated_samples[1920:]
                     
-                    # Create an AudioFrame from the raw bytes
-                    import numpy as np
                     raw_array = np.frombuffer(chunk, dtype=np.int16).reshape(1, -1)
                     audio_frame = av.AudioFrame.from_ndarray(raw_array, format='s16', layout='mono')
                     audio_frame.sample_rate = 16000
@@ -57,7 +50,6 @@ async def encode_mp3_to_opus_packets(mp3_path):
                     for p in enc_packets:
                         packets.append(bytes(p))
                         
-        # Flush encoder
         for p in opus_encoder.encode():
             packets.append(bytes(p))
             
@@ -73,13 +65,88 @@ async def websocket_handler(request):
     client_id = id(websocket)
     logger.info(f"Client connected: {client_id}")
     
-    # Session state
     is_listening = False
-    opus_decoder = av.CodecContext.create('opus', 'r')
-    opus_decoder.sample_rate = 16000
-    opus_decoder.layout = 'mono'
-    
+    opus_decoder = None
     pcm_buffer = bytearray()
+    last_audio_time = 0
+    is_processing = False
+    
+    async def process_audio():
+        nonlocal is_listening, pcm_buffer, is_processing
+        if is_processing or len(pcm_buffer) == 0:
+            return
+        
+        is_processing = True
+        is_listening = False
+        buffer_to_process = bytes(pcm_buffer)
+        pcm_buffer.clear()
+        
+        logger.info(f"Processing recorded audio ({len(buffer_to_process)} bytes)...")
+        
+        try:
+            # Save PCM to WAV
+            fd, wav_path = tempfile.mkstemp(suffix=".wav")
+            with wave.open(os.fdopen(fd, 'wb'), 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(buffer_to_process)
+            
+            # Send STT thinking status
+            await websocket.send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
+            logger.info("Sending audio to Gemini AI...")
+            
+            text_resp, func_calls = await generate_response(wav_path)
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+            
+            logger.info(f"Gemini Response: {text_resp}")
+            
+            # Send LLM text response
+            await websocket.send_str(json.dumps({"type": "llm", "text": text_resp}))
+            
+            # Handle MCP Function Calls
+            for fc in func_calls:
+                logger.info(f"Function Call: {fc}")
+                await websocket.send_str(json.dumps({
+                    "type": "mcp",
+                    "name": fc["name"],
+                    "arguments": fc["arguments"]
+                }))
+            
+            # Generate TTS & Stream Opus back
+            await websocket.send_str(json.dumps({"type": "tts", "state": "start"}))
+            
+            mp3_path = await generate_tts(text_resp)
+            opus_packets = await encode_mp3_to_opus_packets(mp3_path)
+            if os.path.exists(mp3_path):
+                os.remove(mp3_path)
+            
+            logger.info(f"Streaming {len(opus_packets)} Opus packets to ESP32...")
+            for i, packet in enumerate(opus_packets):
+                await websocket.send_bytes(packet)
+                if i % 3 == 2:
+                    await asyncio.sleep(0.05) # 60ms audio every 50ms
+            
+            await websocket.send_str(json.dumps({"type": "tts", "state": "stop"}))
+            logger.info("Finished streaming response to ESP32")
+            
+        except Exception as e:
+            logger.error(f"Error in process_audio: {e}")
+        finally:
+            is_processing = False
+
+    async def silence_checker():
+        """Auto-detect silence after user stops speaking for 1.2 seconds"""
+        nonlocal last_audio_time
+        while True:
+            await asyncio.sleep(0.3)
+            if is_listening and len(pcm_buffer) > 0 and not is_processing:
+                if time.time() - last_audio_time > 1.2:
+                    logger.info("Silence detected (1.2s timeout). Triggering AI processing...")
+                    asyncio.create_task(process_audio())
+                    
+    checker_task = asyncio.create_task(silence_checker())
     
     try:
         async for message in websocket:
@@ -97,72 +164,37 @@ async def websocket_handler(request):
                         if state == "start":
                             logger.info("Started listening (VAD start)")
                             is_listening = True
-                            pcm_buffer = bytearray()
+                            pcm_buffer.clear()
                             opus_decoder = av.CodecContext.create('opus', 'r')
                             opus_decoder.sample_rate = 16000
                             opus_decoder.layout = 'mono'
+                            last_audio_time = time.time()
                         elif state == "stop":
                             logger.info("Stopped listening (VAD stop)")
-                            is_listening = False
+                            asyncio.create_task(process_audio())
                             
-                            if len(pcm_buffer) > 0:
-                                # Save PCM to WAV
-                                fd, wav_path = tempfile.mkstemp(suffix=".wav")
-                                with wave.open(os.fdopen(fd, 'wb'), 'wb') as wf:
-                                    wf.setnchannels(1)
-                                    wf.setsampwidth(2)
-                                    wf.setframerate(16000)
-                                    wf.writeframes(pcm_buffer)
-                                
-                                # Send to Gemini
-                                await websocket.send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
-                                logger.info("Sending to Gemini...")
-                                
-                                text_resp, func_calls = await generate_response(wav_path)
-                                os.remove(wav_path)
-                                
-                                # Send LLM response text
-                                await websocket.send_str(json.dumps({"type": "llm", "text": text_resp}))
-                                
-                                # Handle Function Calls (MCP)
-                                for fc in func_calls:
-                                    logger.info(f"Function Call: {fc}")
-                                    await websocket.send_str(json.dumps({
-                                        "type": "mcp",
-                                        "name": fc["name"],
-                                        "arguments": fc["arguments"]
-                                    }))
-                                
-                                # Generate TTS
-                                await websocket.send_str(json.dumps({"type": "tts", "state": "start"}))
-                                
-                                mp3_path = await generate_tts(text_resp)
-                                opus_packets = await encode_mp3_to_opus_packets(mp3_path)
-                                os.remove(mp3_path)
-                                
-                                # Send audio packets (each is 20ms, so 3 packets = 60ms)
-                                for i, packet in enumerate(opus_packets):
-                                    await websocket.send_bytes(packet)
-                                    if i % 3 == 2:
-                                        await asyncio.sleep(0.05) # stream 60ms audio every 50ms
-                                
-                                await websocket.send_str(json.dumps({"type": "tts", "state": "stop"}))
-                                
                 except json.JSONDecodeError:
                     pass
+                    
             elif message.type == web.WSMsgType.BINARY:
-                if is_listening:
-                    try:
-                        packet = av.Packet(message.data)
-                        frames = opus_decoder.decode(packet)
-                        for frame in frames:
-                            pcm_buffer.extend(frame.to_ndarray().tobytes())
-                    except Exception as e:
-                        logger.error(f"Opus decode error: {e}")
-                        
+                is_listening = True
+                last_audio_time = time.time()
+                if opus_decoder is None:
+                    opus_decoder = av.CodecContext.create('opus', 'r')
+                    opus_decoder.sample_rate = 16000
+                    opus_decoder.layout = 'mono'
+                try:
+                    packet = av.Packet(message.data)
+                    frames = opus_decoder.decode(packet)
+                    for frame in frames:
+                        pcm_buffer.extend(frame.to_ndarray().tobytes())
+                except Exception as e:
+                    logger.error(f"Opus decode error: {e}")
+                    
     except Exception as e:
         logger.error(f"Connection error: {e}")
     finally:
+        checker_task.cancel()
         logger.info(f"Client disconnected: {client_id}")
     
     return websocket
