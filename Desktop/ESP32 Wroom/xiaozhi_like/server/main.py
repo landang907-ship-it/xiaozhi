@@ -15,6 +15,9 @@ logger = logging.getLogger("Xiaozhi-Server")
 from ai_handler import generate_response
 from tts_handler import generate_tts
 
+# Minimum 0.5 seconds of 16kHz 16-bit mono PCM audio required to trigger AI (16000 * 2 * 0.5 = 16000 bytes)
+MIN_AUDIO_BYTES = 16000
+
 async def encode_mp3_to_opus_packets(mp3_path):
     """
     Reads an MP3 file (from edge-tts) and yields raw Opus packets (16kHz, mono, 60ms).
@@ -88,7 +91,8 @@ async def websocket_handler(request):
 
     async def process_audio():
         nonlocal is_listening, pcm_buffer, is_processing
-        if is_processing or len(pcm_buffer) == 0:
+        if is_processing or len(pcm_buffer) < MIN_AUDIO_BYTES:
+            pcm_buffer.clear()
             return
         
         is_processing = True
@@ -146,7 +150,7 @@ async def websocket_handler(request):
                     break
                 await safe_send_bytes(packet)
                 if i % 3 == 2:
-                    await asyncio.sleep(0.04) # 60ms audio every 40ms for faster stream
+                    await asyncio.sleep(0.04) # 60ms audio every 40ms
             
             await safe_send_str(json.dumps({"type": "tts", "state": "stop"}))
             logger.info("Finished streaming response to ESP32")
@@ -157,14 +161,19 @@ async def websocket_handler(request):
             is_processing = False
 
     async def silence_checker():
-        """Ultra-fast silence detection after user stops speaking for 0.5 seconds"""
+        """Silence detection after user stops speaking for 0.8 seconds (requires min 0.5s audio)"""
         nonlocal last_audio_time
         while True:
-            await asyncio.sleep(0.15)
-            if is_listening and len(pcm_buffer) > 0 and not is_processing:
-                if time.time() - last_audio_time > 0.5: # Reduced from 1.2s to 0.5s for instant response
-                    logger.info("Silence detected (0.5s timeout). Triggering AI processing...")
-                    asyncio.create_task(process_audio())
+            await asyncio.sleep(0.2)
+            if is_listening and not is_processing:
+                if len(pcm_buffer) < MIN_AUDIO_BYTES:
+                    # Ignore tiny noise (<0.5s)
+                    if time.time() - last_audio_time > 1.5:
+                        pcm_buffer.clear()
+                else:
+                    if time.time() - last_audio_time > 0.8:
+                        logger.info("Silence detected (0.8s timeout). Triggering AI processing...")
+                        asyncio.create_task(process_audio())
                     
     checker_task = asyncio.create_task(silence_checker())
     
