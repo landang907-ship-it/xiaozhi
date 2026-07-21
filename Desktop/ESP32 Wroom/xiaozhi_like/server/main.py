@@ -129,13 +129,15 @@ async def websocket_handler(request):
                     "arguments": fc["arguments"]
                 }))
             
-            # Generate TTS & Stream Opus back
-            await safe_send_str(json.dumps({"type": "tts", "state": "start"}))
-            
+            # Generate TTS MP3 and encode to Opus packets BEFORE telling ESP32 to start TTS!
             mp3_path = await generate_tts(text_resp)
             opus_packets = await encode_mp3_to_opus_packets(mp3_path)
             if os.path.exists(mp3_path):
                 os.remove(mp3_path)
+            
+            # Now send TTS start and text sentence
+            await safe_send_str(json.dumps({"type": "tts", "state": "sentence_start", "text": text_resp}))
+            await safe_send_str(json.dumps({"type": "tts", "state": "start"}))
             
             logger.info(f"Streaming {len(opus_packets)} Opus packets to ESP32...")
             for i, packet in enumerate(opus_packets):
