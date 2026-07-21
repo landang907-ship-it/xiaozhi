@@ -9,7 +9,7 @@ load_dotenv()
 logger = logging.getLogger("Xiaozhi-Server")
 
 # Encoded fallback API key
-_DEFAULT_KEY_B64 = "QVEuQWI4Uk42SUVEREpsVU9BaDhTeU1FbWU1R2hxX3FybHZBM0FjOGp4RmNSQ1pzM0JYUQ=="
+_DEFAULT_KEY_B64 = "QVEuQWI4Uk42TEw2bzE4amo0OV9CbHh2QmVMRkJHUlJOdnJ6YXdWOG5KMFJSME1DTzF3TWc="
 
 def get_api_key():
     env_key = os.environ.get("GEMINI_API_KEY")
@@ -46,30 +46,32 @@ def get_best_model():
         logger.info(f"Available Gemini models: {available_models}")
         
         preferred = [
-            "models/gemini-1.5-flash",
+            "models/gemini-2.5-flash",
             "models/gemini-2.0-flash",
-            "models/gemini-1.5-pro",
-            "models/gemini-flash"
+            "models/gemini-1.5-flash",
+            "models/gemini-flash-latest",
+            "models/gemini-2.5-flash-lite",
+            "models/gemini-3.5-flash"
         ]
         
         for p in preferred:
             if p in available_models:
-                logger.info(f"Auto-selected Gemini Model: {p}")
+                logger.info(f"✅ Auto-selected Gemini Model: {p}")
                 return p
                 
         for m in available_models:
             if "flash" in m.lower():
-                logger.info(f"Auto-selected Gemini Model: {m}")
+                logger.info(f"✅ Auto-selected Gemini Model: {m}")
                 return m
                 
         if available_models:
-            logger.info(f"Auto-selected Gemini Model: {available_models[0]}")
+            logger.info(f"✅ Auto-selected Gemini Model: {available_models[0]}")
             return available_models[0]
             
     except Exception as e:
-        logger.warning(f"Could not auto-detect Gemini models ({e}). Using default gemini-1.5-flash.")
+        logger.warning(f"Could not auto-detect Gemini models ({e}). Using default models/gemini-2.5-flash.")
         
-    return "gemini-1.5-flash"
+    return "models/gemini-2.5-flash"
 
 try:
     model_name = get_best_model()
@@ -80,7 +82,7 @@ try:
     )
 except Exception as e:
     logger.error(f"Failed to create GenerativeModel: {e}")
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+    model = genai.GenerativeModel(model_name="models/gemini-2.5-flash")
 
 async def generate_response(audio_file_path: str):
     """
