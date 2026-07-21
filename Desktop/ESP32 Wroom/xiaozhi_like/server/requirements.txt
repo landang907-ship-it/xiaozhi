@@ -4,3 +4,4 @@ edge-tts
 av
 pydub
 python-dotenv
+numpy
