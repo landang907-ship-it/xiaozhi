@@ -57,21 +57,41 @@ async def loopback_handler(websocket, path=None):
                 # JSON commands
                 try:
                     data = json.loads(message)
-                    cmd = data.get("cmd", "")
+                    msg_type = data.get("type") or data.get("cmd", "")
                     
-                    if cmd == "ping":
+                    if msg_type == "hello":
+                        logger.info(f"[Client #{client_id}] Received HELLO from ESP32 -> Sending HELLO handshake")
+                        await websocket.send(json.dumps({
+                            "type": "hello",
+                            "version": 1,
+                            "transport": "websocket",
+                            "audio_params": {
+                                "format": "opus",
+                                "sample_rate": 16000,
+                                "channels": 1,
+                                "frame_duration": 60
+                            }
+                        }))
+
+                    elif msg_type == "listen":
+                        state = data.get("state")
+                        logger.info(f"[Client #{client_id}] Listen state: {state}")
+                        if state == "start":
+                            await websocket.send(json.dumps({"type": "tts", "state": "start"}))
+
+                    elif msg_type == "ping":
                         await websocket.send(json.dumps({"type": "pong"}))
                         logger.info(f"[Client #{client_id}] Ping-pong")
                     
-                    elif cmd == "echo_start":
+                    elif msg_type == "echo_start":
                         logger.info(f"[Client #{client_id}] Echo mode STARTED")
                         await websocket.send(json.dumps({"type": "echo_ready"}))
                     
-                    elif cmd == "echo_stop":
+                    elif msg_type == "echo_stop":
                         logger.info(f"[Client #{client_id}] Echo mode STOPPED")
                         await websocket.send(json.dumps({"type": "echo_stopped"}))
                     
-                    elif cmd == "status":
+                    elif msg_type == "status":
                         await websocket.send(json.dumps({
                             "type": "status",
                             "packets_received": packets_received,
@@ -81,7 +101,7 @@ async def loopback_handler(websocket, path=None):
                         }))
                     
                     else:
-                        logger.warning(f"[Client #{client_id}] Unknown cmd: {cmd}")
+                        logger.info(f"[Client #{client_id}] Received message: {data}")
 
                 except json.JSONDecodeError:
                     logger.warning(f"[Client #{client_id}] Invalid JSON: {message[:100]}")

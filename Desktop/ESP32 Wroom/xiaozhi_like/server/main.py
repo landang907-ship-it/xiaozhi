@@ -23,6 +23,7 @@ async def encode_mp3_to_opus_packets(mp3_path):
     Reads an MP3 file (from edge-tts) and yields raw Opus packets (16kHz, mono, 60ms).
     """
     packets = []
+    container = None
     try:
         container = av.open(mp3_path)
         audio_stream = container.streams.audio[0]
@@ -58,6 +59,12 @@ async def encode_mp3_to_opus_packets(mp3_path):
             
     except Exception as e:
         logger.error(f"Error encoding audio: {e}")
+    finally:
+        if container:
+            try:
+                container.close()
+            except Exception:
+                pass
         
     return packets
 
@@ -69,10 +76,12 @@ async def websocket_handler(request):
     logger.info(f"Client connected: {client_id}")
     
     is_listening = False
+    audio_packet_count = 0
     opus_decoder = None
     decoder_resampler = None
     pcm_buffer = bytearray()
     last_audio_time = 0
+    last_ai_request_time = 0
     is_processing = False
     
     async def safe_send_str(payload: str):
@@ -100,26 +109,36 @@ async def websocket_handler(request):
         buffer_to_process = bytes(pcm_buffer)
         pcm_buffer.clear()
         
+        # Keep only the most recent 5 seconds of audio to prevent stale echo buildup
+        if len(buffer_to_process) > 160000:
+            buffer_to_process = buffer_to_process[-160000:]
+        
         logger.info(f"Processing recorded audio ({len(buffer_to_process)} bytes)...")
         
         try:
-            # Save PCM to WAV (16kHz, 16-bit Mono)
+            # Save PCM to WAV (16kHz, 16-bit Mono) with 3.5x volume gain boost for clear mic recognition
+            pcm_array = np.frombuffer(buffer_to_process, dtype=np.int16).astype(np.float32)
+            pcm_boosted = np.clip(pcm_array * 3.5, -32768, 32767).astype(np.int16)
+            
             fd, wav_path = tempfile.mkstemp(suffix=".wav")
             with wave.open(os.fdopen(fd, 'wb'), 'wb') as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(16000)
-                wf.writeframes(buffer_to_process)
+                wf.writeframes(pcm_boosted.tobytes())
             
             # Send STT thinking status
             await safe_send_str(json.dumps({"type": "stt", "text": "Đang suy nghĩ..."}))
-            logger.info("Sending audio to Gemini AI...")
+            logger.info("Sending boosted audio to Gemini AI...")
             
             text_resp, func_calls = await generate_response(wav_path)
             if os.path.exists(wav_path):
                 os.remove(wav_path)
             
             logger.info(f"Gemini Response: {text_resp}")
+            if not text_resp or not text_resp.strip() or "IGNORE" in text_resp.upper():
+                logger.warning("Background noise detected or IGNORE returned, skipping TTS playback.")
+                return
             
             # Send LLM text response
             await safe_send_str(json.dumps({"type": "llm", "text": text_resp}))
@@ -154,6 +173,7 @@ async def websocket_handler(request):
             
             await safe_send_str(json.dumps({"type": "tts", "state": "stop"}))
             logger.info("Finished streaming response to ESP32")
+            pcm_buffer.clear()  # Clear echo audio captured during TTS playback
             
         except Exception as e:
             logger.error(f"Error in process_audio: {e}")
@@ -161,19 +181,32 @@ async def websocket_handler(request):
             is_processing = False
 
     async def silence_checker():
-        """Silence detection after user stops speaking for 0.8 seconds (requires min 0.5s audio)"""
-        nonlocal last_audio_time
+        """Trigger AI with RMS voice detection & 4s rate-limit pacing"""
+        nonlocal last_audio_time, last_ai_request_time
         while True:
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.25)
             if is_listening and not is_processing:
-                if len(pcm_buffer) < MIN_AUDIO_BYTES:
-                    # Ignore tiny noise (<0.5s)
-                    if time.time() - last_audio_time > 1.5:
-                        pcm_buffer.clear()
-                else:
-                    if time.time() - last_audio_time > 0.8:
-                        logger.info("Silence detected (0.8s timeout). Triggering AI processing...")
-                        asyncio.create_task(process_audio())
+                # Minimum 4.0 seconds pacing between requests to strictly prevent Gemini 15 RPM Free Tier limit
+                if time.time() - last_ai_request_time < 4.0:
+                    continue
+                    
+                if len(pcm_buffer) >= MIN_AUDIO_BYTES:
+                    # Calculate RMS audio energy
+                    try:
+                        samples = np.frombuffer(bytes(pcm_buffer), dtype=np.int16)
+                        rms = np.sqrt(np.mean(samples.astype(np.float32)**2))
+                    except Exception:
+                        rms = 0
+                        
+                    if rms < 1000:
+                        # Pure background noise or room ambient sound (<1000 RMS): clear buffer
+                        if len(pcm_buffer) > 160000 or time.time() - last_audio_time > 1.5:
+                            pcm_buffer.clear()
+                    else:
+                        if len(pcm_buffer) >= 96000 or time.time() - last_audio_time > 0.8:
+                            logger.info(f"🎙️ Speech detected (RMS={int(rms)}, Buffer={len(pcm_buffer)}B) -> Triggering AI...")
+                            last_ai_request_time = time.time()
+                            asyncio.create_task(process_audio())
                     
     checker_task = asyncio.create_task(silence_checker())
     
@@ -220,6 +253,10 @@ async def websocket_handler(request):
             elif message.type == web.WSMsgType.BINARY:
                 is_listening = True
                 last_audio_time = time.time()
+                audio_packet_count += 1
+                if audio_packet_count % 30 == 1:
+                    logger.info(f"🎤 Receiving audio stream from ESP32 mic... (Packets: {audio_packet_count}, Buffer: {len(pcm_buffer)} bytes)")
+                    
                 if opus_decoder is None:
                     opus_decoder = av.CodecContext.create('opus', 'r')
                     opus_decoder.sample_rate = 16000
